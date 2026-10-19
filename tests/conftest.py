@@ -6,6 +6,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
 from app.main import app
+from app.auth import require_auth
 
 
 @pytest.fixture()
@@ -42,6 +43,7 @@ def client(engine):
             session.close()
 
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[require_auth] = lambda: "test-token"
     with TestClient(app) as c:
         yield c
     app.dependency_overrides.clear()

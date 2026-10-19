@@ -8,6 +8,9 @@ class Settings(BaseSettings):
     onboarding_api_url: str = "http://localhost:8001"
     log_level: str = "INFO"
     app_name: str = "erp-banking-credit-score-api"
+    auth0_domain: str = ""
+    auth0_audience: str = ""
+    cors_origins: list[str] = ["http://localhost:5173"]
 
 
 settings = Settings()
