@@ -5,6 +5,7 @@ from app.clients.onboarding_client import (
     CustomerNotFoundInOnboarding,
     OnboardingClientError,
 )
+from app.auth import require_permission
 from app.database import get_db
 from app.factories.score_strategy_factory import UnknownStrategyError
 from app.schemas import EvaluationOut, EvaluationRequest
@@ -13,7 +14,12 @@ from app.services import ScoreNotFoundError, ScoreService
 router = APIRouter(prefix="/scores", tags=["scores"])
 
 
-@router.post("/evaluations", response_model=EvaluationOut, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/evaluations",
+    response_model=EvaluationOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission("write:scores"))],
+)
 def create_evaluation(payload: EvaluationRequest, db: Session = Depends(get_db)):
     service = ScoreService(db)
     try:
@@ -27,7 +33,11 @@ def create_evaluation(payload: EvaluationRequest, db: Session = Depends(get_db))
     return evaluation
 
 
-@router.get("/customers/{customer_id}/latest", response_model=EvaluationOut)
+@router.get(
+    "/customers/{customer_id}/latest",
+    response_model=EvaluationOut,
+    dependencies=[Depends(require_permission("read:scores"))],
+)
 def get_latest_score(customer_id: int, db: Session = Depends(get_db)):
     service = ScoreService(db)
     try:
