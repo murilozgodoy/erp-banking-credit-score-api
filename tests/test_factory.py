@@ -32,3 +32,11 @@ def test_available_returns_registered_strategies():
     names = ScoreStrategyFactory.available()
     assert "simple" in names
     assert "weighted" in names
+
+
+def test_describe_lists_strategies_with_default():
+    described = {d["name"]: d for d in ScoreStrategyFactory.describe()}
+    assert set(described) == {"simple", "weighted"}
+    assert described["weighted"]["default"] is True
+    assert described["simple"]["default"] is False
+    assert described["simple"]["description"] == SimpleRuleStrategy.description

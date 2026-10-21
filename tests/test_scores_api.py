@@ -22,6 +22,23 @@ def test_create_evaluation_success(client, onboarding_response):
 
 
 @respx.mock
+def test_create_evaluation_propagates_user_token(client, onboarding_response):
+    route = respx.get(f"{BASE}/customers/1").mock(
+        return_value=httpx.Response(200, json=onboarding_response)
+    )
+    assert client.post("/scores/evaluations", json={"customer_id": 1}).status_code == 201
+    assert route.calls.last.request.headers["Authorization"] == "Bearer test-token"
+
+
+@respx.mock
+def test_create_evaluation_forbidden_in_onboarding(client):
+    respx.get(f"{BASE}/customers/1").mock(return_value=httpx.Response(403))
+    r = client.post("/scores/evaluations", json={"customer_id": 1})
+    assert r.status_code == 403
+    assert "read:customers" in r.json()["detail"]
+
+
+@respx.mock
 def test_create_evaluation_customer_not_found(client):
     respx.get(f"{BASE}/customers/99").mock(return_value=httpx.Response(404))
     r = client.post("/scores/evaluations", json={"customer_id": 99})
@@ -65,3 +82,31 @@ def test_latest_not_found(client):
 def test_invalid_payload(client):
     r = client.post("/scores/evaluations", json={"customer_id": 0})
     assert r.status_code == 422
+
+
+@respx.mock
+def test_list_evaluations_returns_history_newest_first(client, onboarding_response):
+    respx.get(f"{BASE}/customers/1").mock(
+        return_value=httpx.Response(200, json=onboarding_response)
+    )
+    client.post("/scores/evaluations", json={"customer_id": 1, "strategy": "simple"})
+    client.post("/scores/evaluations", json={"customer_id": 1, "strategy": "weighted"})
+
+    r = client.get("/scores/evaluations", params={"customer_id": 1})
+    assert r.status_code == 200
+    assert [e["strategy_usada"] for e in r.json()] == ["weighted", "simple"]
+    assert len(client.get("/scores/evaluations", params={"customer_id": 1, "limit": 1}).json()) == 1
+    assert client.get("/scores/evaluations", params={"customer_id": 2}).json() == []
+
+
+def test_list_evaluations_requires_customer(client):
+    assert client.get("/scores/evaluations").status_code == 422
+
+
+def test_list_strategies(client):
+    r = client.get("/scores/strategies")
+    assert r.status_code == 200
+    body = r.json()
+    assert [s["name"] for s in body] == ["simple", "weighted"]
+    assert [s["name"] for s in body if s["default"]] == ["weighted"]
+    assert all(s["description"] for s in body)

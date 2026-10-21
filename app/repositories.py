@@ -39,10 +39,19 @@ class ScoreRepository:
         stmt = (
             select(ScoreEvaluation)
             .where(ScoreEvaluation.customer_id == customer_id)
-            .order_by(desc(ScoreEvaluation.created_at))
+            .order_by(desc(ScoreEvaluation.created_at), desc(ScoreEvaluation.id))
             .limit(1)
         )
         return self.db.execute(stmt).scalar_one_or_none()
+
+    def list_for_customer(self, customer_id: int, limit: int = 20) -> list[ScoreEvaluation]:
+        stmt = (
+            select(ScoreEvaluation)
+            .where(ScoreEvaluation.customer_id == customer_id)
+            .order_by(desc(ScoreEvaluation.created_at), desc(ScoreEvaluation.id))
+            .limit(limit)
+        )
+        return list(self.db.scalars(stmt))
 
     def get(self, evaluation_id: int) -> ScoreEvaluation | None:
         return self.db.get(ScoreEvaluation, evaluation_id)

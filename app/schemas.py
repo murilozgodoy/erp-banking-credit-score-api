@@ -33,6 +33,12 @@ class EvaluationOut(BaseModel):
     decision: CreditDecisionOut | None = None
 
 
+class StrategyOut(BaseModel):
+    name: str
+    description: str
+    default: bool
+
+
 class CustomerFinancialData(BaseModel):
     """Snapshot dos dados do cliente que a Strategy consome."""
 

@@ -44,6 +44,9 @@ class ScoreService:
             raise ScoreNotFoundError(f"Nenhum score encontrado para cliente {customer_id}")
         return latest
 
+    def history(self, customer_id: int, limit: int = 20) -> list[ScoreEvaluation]:
+        return self.repo.list_for_customer(customer_id, limit)
+
     @staticmethod
     def _decide(score: float, faixa_risco: str) -> tuple[str, str]:
         if faixa_risco == "BAIXO":

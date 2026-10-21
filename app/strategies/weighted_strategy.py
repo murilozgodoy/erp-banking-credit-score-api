@@ -6,6 +6,7 @@ class WeightedStrategy(ScoreStrategy):
     """Score ponderado: renda 40%, patrimônio 30%, comprometimento 30%."""
 
     name = "weighted"
+    description = "Ponderada: renda 40%, patrimônio 30% e comprometimento 30%"
 
     WEIGHTS = {"renda": 0.40, "patrimonio": 0.30, "comprometimento": 0.30}
 

@@ -26,3 +26,14 @@ class ScoreStrategyFactory:
     @classmethod
     def available(cls) -> list[str]:
         return sorted(cls._registry.keys())
+
+    @classmethod
+    def describe(cls) -> list[dict]:
+        return [
+            {
+                "name": name,
+                "description": cls._registry[name].description,
+                "default": name == cls.DEFAULT,
+            }
+            for name in cls.available()
+        ]

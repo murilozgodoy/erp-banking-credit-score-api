@@ -5,6 +5,7 @@ from unittest.mock import Mock
 import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
+from fastapi.security import HTTPAuthorizationCredentials
 from fastapi.testclient import TestClient
 
 from app import auth
@@ -26,7 +27,8 @@ def auth_client(monkeypatch):
 def token(key, **changes):
     claims = {"sub": "auth0|user", "iss": "https://test.auth0.com/",
               "aud": "https://erp-banking-api",
-              "exp": datetime.now(timezone.utc) + timedelta(minutes=5)}
+              "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
+              "permissions": ["read:scores"]}
     claims.update(changes)
     return jwt.encode({k: v for k, v in claims.items() if v is not None}, key, algorithm="RS256")
 
@@ -65,6 +67,32 @@ def test_valid_token(auth_client):
     http, key, _ = auth_client
     # Missing resource returns 404 only after authentication succeeds.
     assert http.get(PROTECTED_PATH, headers={"Authorization": "Bearer " + token(key)}).status_code == 404
+
+
+def test_missing_permission_is_forbidden(auth_client):
+    http, key, _ = auth_client
+    response = http.get(PROTECTED_PATH, headers={"Authorization": "Bearer " + token(key, permissions=[])})
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Missing permission: read:scores"
+    # Calcular score exige write:scores mesmo para quem pode ler.
+    response = http.post("/scores/evaluations", json={"customer_id": 1},
+                         headers={"Authorization": "Bearer " + token(key)})
+    assert response.status_code == 403
+
+
+def test_permission_from_scope_claim(auth_client):
+    http, key, _ = auth_client
+    scoped = token(key, permissions=None, scope="openid read:scores")
+    assert http.get(PROTECTED_PATH, headers={"Authorization": "Bearer " + scoped}).status_code == 404
+
+
+def test_principal_carries_token_subject_and_permissions(auth_client):
+    _, key, _ = auth_client
+    raw = token(key, permissions=["write:scores"], scope="read:scores")
+    principal = auth.require_auth(HTTPAuthorizationCredentials(scheme="Bearer", credentials=raw))
+    assert principal.token == raw
+    assert principal.subject == "auth0|user"
+    assert principal.permissions == {"read:scores", "write:scores"}
 
 
 def test_unavailable_signing_key(auth_client):

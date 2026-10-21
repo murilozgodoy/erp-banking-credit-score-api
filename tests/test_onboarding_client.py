@@ -6,6 +6,7 @@ from app.clients.onboarding_client import (
     CustomerNotFoundInOnboarding,
     OnboardingClient,
     OnboardingClientError,
+    OnboardingForbiddenError,
 )
 
 
@@ -57,3 +58,28 @@ def test_missing_optional_sections_defaults_to_zero():
     data = OnboardingClient(base_url=BASE).get_customer_financials(9)
     assert data.renda_mensal == 0.0
     assert data.dividas_ativas == 0.0
+
+
+@respx.mock
+def test_forwards_access_token(onboarding_response):
+    route = respx.get(f"{BASE}/customers/1").mock(
+        return_value=httpx.Response(200, json=onboarding_response)
+    )
+    OnboardingClient(base_url=BASE, access_token="user-jwt").get_customer_financials(1)
+    assert route.calls.last.request.headers["Authorization"] == "Bearer user-jwt"
+
+
+@respx.mock
+def test_without_token_sends_no_authorization(onboarding_response):
+    route = respx.get(f"{BASE}/customers/1").mock(
+        return_value=httpx.Response(200, json=onboarding_response)
+    )
+    OnboardingClient(base_url=BASE).get_customer_financials(1)
+    assert "Authorization" not in route.calls.last.request.headers
+
+
+@respx.mock
+def test_get_customer_403_raises_forbidden():
+    respx.get(f"{BASE}/customers/1").mock(return_value=httpx.Response(403))
+    with pytest.raises(OnboardingForbiddenError):
+        OnboardingClient(base_url=BASE, access_token="t").get_customer_financials(1)
