@@ -15,6 +15,7 @@ class ScoreStrategy(ABC):
     """Interface do padrão Strategy para cálculo de score."""
 
     name: str = "base"
+    description: str = ""
 
     @abstractmethod
     def calculate(self, data: CustomerFinancialData) -> ScoreResult:

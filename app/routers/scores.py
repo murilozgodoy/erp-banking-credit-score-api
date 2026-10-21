@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.auth import Principal, require_permission
@@ -9,8 +9,8 @@ from app.clients.onboarding_client import (
     OnboardingForbiddenError,
 )
 from app.database import get_db
-from app.factories.score_strategy_factory import UnknownStrategyError
-from app.schemas import EvaluationOut, EvaluationRequest
+from app.factories.score_strategy_factory import ScoreStrategyFactory, UnknownStrategyError
+from app.schemas import EvaluationOut, EvaluationRequest, StrategyOut
 from app.services import ScoreNotFoundError, ScoreService
 
 router = APIRouter(prefix="/scores", tags=["scores"])
@@ -51,3 +51,27 @@ def get_latest_score(customer_id: int, db: Session = Depends(get_db)):
         return service.latest(customer_id)
     except ScoreNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+
+
+@router.get(
+    "/evaluations",
+    response_model=list[EvaluationOut],
+    dependencies=[Depends(require_permission("read:scores"))],
+)
+def list_evaluations(
+    customer_id: int = Query(..., gt=0),
+    limit: int = Query(default=20, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    """Histórico de avaliações do cliente, da mais recente para a mais antiga."""
+    return ScoreService(db).history(customer_id, limit)
+
+
+@router.get(
+    "/strategies",
+    response_model=list[StrategyOut],
+    dependencies=[Depends(require_permission("read:scores"))],
+)
+def list_strategies():
+    """Strategies registradas na ScoreStrategyFactory."""
+    return ScoreStrategyFactory.describe()

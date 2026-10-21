@@ -6,6 +6,7 @@ class SimpleRuleStrategy(ScoreStrategy):
     """Score baseado em regras simples: renda vs dívidas."""
 
     name = "simple"
+    description = "Regras simples: faixa de renda, dívidas e comprometimento da renda"
 
     def calculate(self, data: CustomerFinancialData) -> ScoreResult:
         score = 500.0
