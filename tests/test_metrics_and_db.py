@@ -70,3 +70,14 @@ def test_metric_series_are_initialized_with_zero(client):
     assert 'events_consumed_total{result="duplicate",routing_key="credit.decided"} ' in body
     assert 'events_consumed_total{result="invalid",routing_key="customer.anamnesis_updated"} ' in body
     assert 'score_evaluations_total{faixa_risco="MUITO_ALTO",strategy="weighted"} ' in body
+
+
+def test_root_path_never_changes_routing(monkeypatch):
+    """ROOT_PATH igual ao início de uma rota (/me, /scores) não pode virar 404 (bug do /onboarding/templates)."""
+    monkeypatch.setattr(main, "Instrumentator", MagicMock())
+    for prefix, path in (("/me", "/me/analysis"), ("/scores", "/scores/decisions?customer_id=1")):
+        monkeypatch.setattr(main.settings, "root_path", prefix)
+        app = main.create_app()
+        with TestClient(app) as c:
+            assert c.get(path).status_code == 401  # rota encontrada; só falta o token
+            assert c.get("/openapi.json").status_code == 401
