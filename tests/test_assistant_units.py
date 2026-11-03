@@ -149,6 +149,23 @@ def test_api_messages_start_with_user():
     assert _api_messages(history) == [{"role": "user", "content": "oi"}]
 
 
+def test_api_messages_merge_consecutive_same_role():
+    # o front reenvia a pergunta que deu 503 junto com a nova: a API recusa papéis repetidos (400)
+    history = [
+        {"role": "assistant", "content": "Olá"},
+        {"role": "user", "content": "a"},
+        {"role": "user", "content": "b"},
+        {"role": "assistant", "content": "c"},
+        {"role": "assistant", "content": "d"},
+        {"role": "user", "content": "e"},
+    ]
+    assert _api_messages(history) == [
+        {"role": "user", "content": "a\n\nb"},
+        {"role": "assistant", "content": "c\n\nd"},
+        {"role": "user", "content": "e"},
+    ]
+
+
 # --- corte das saídas -----------------------------------------------------------------------
 
 
