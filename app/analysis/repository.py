@@ -120,3 +120,9 @@ def em_analise_response(customer_id: int) -> dict:
         "riscos": [],
         "motivos_revisao": [],
     }
+
+
+def latest_analysis_body(db: Session, customer_id: int) -> dict | None:
+    """Corpo de `GET /me/analysis` da versão vigente (ou `None`); usado também pelo Assistente ErpIa."""
+    row = BusinessAnalysisRepository(db).latest(customer_id)
+    return to_response(row) if row is not None else None
