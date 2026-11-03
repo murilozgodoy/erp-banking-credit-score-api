@@ -11,7 +11,13 @@ from app.clients.onboarding_client import (
 from app.database import get_db
 from app.factories.score_strategy_factory import ScoreStrategyFactory, UnknownStrategyError
 from app.repositories import DecisionEventRepository
-from app.schemas import DecisionEventOut, EvaluationOut, EvaluationRequest, StrategyOut
+from app.schemas import (
+    DecisionEventOut,
+    EvaluationOut,
+    EvaluationRequest,
+    ScoreStatusOut,
+    StrategyOut,
+)
 from app.services import ScoreNotFoundError, ScoreService
 
 router = APIRouter(prefix="/scores", tags=["scores"])
@@ -52,6 +58,16 @@ def get_latest_score(customer_id: int, db: Session = Depends(get_db)):
         return service.latest(customer_id)
     except ScoreNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+
+
+@router.get(
+    "/customers/{customer_id}/status",
+    response_model=ScoreStatusOut,
+    dependencies=[Depends(require_permission("read:scores"))],
+)
+def get_score_status(customer_id: int, db: Session = Depends(get_db)):
+    """Indica se o score ficou desatualizado após `customer.anamnesis_updated`."""
+    return ScoreService(db).status(customer_id)
 
 
 @router.get(

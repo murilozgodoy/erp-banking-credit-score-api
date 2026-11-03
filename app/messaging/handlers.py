@@ -6,7 +6,7 @@ from pydantic import BaseModel, ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import CreditDecisionEvent
+from app.models import CreditDecisionEvent, CustomerScoreStatus
 
 logger = logging.getLogger(__name__)
 
@@ -60,5 +60,37 @@ def handle_credit_decided(db: Session, payload: dict) -> str:
             received_at=datetime.now(timezone.utc),
         )
     )
+    db.commit()
+    return RESULT_OK
+
+
+class AnamnesisUpdatedEvent(BaseModel):
+    event_id: str
+    event_type: str = "customer.anamnesis_updated"
+    occurred_at: datetime
+    customer_id: int
+    dividas_ativas: float
+    comprometimento_renda: float
+
+
+def handle_anamnesis_updated(db: Session, payload: dict) -> str:
+    """Marca o score do cliente como desatualizado (sem token não dá para reavaliar)."""
+    try:
+        event = AnamnesisUpdatedEvent.model_validate(payload)
+    except ValidationError as exc:
+        logger.warning("evento customer.anamnesis_updated inválido: %s", exc.errors())
+        return RESULT_INVALID
+
+    status = db.get(CustomerScoreStatus, event.customer_id)
+    if status is not None and status.last_event_id == event.event_id:
+        return RESULT_DUPLICATE
+    if status is None:
+        status = CustomerScoreStatus(customer_id=event.customer_id)
+        db.add(status)
+    status.desatualizado = True
+    status.dividas_ativas = event.dividas_ativas
+    status.comprometimento_renda = event.comprometimento_renda
+    status.last_event_id = event.event_id
+    status.updated_at = datetime.now(timezone.utc)
     db.commit()
     return RESULT_OK
