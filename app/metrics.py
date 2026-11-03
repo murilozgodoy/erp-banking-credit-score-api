@@ -12,3 +12,24 @@ EVENTS_CONSUMED = Counter(
     "Eventos consumidos do RabbitMQ",
     ["routing_key", "result"],
 )
+
+CONSUMED_ROUTING_KEYS = ("credit.decided", "customer.anamnesis_updated")
+CONSUMED_RESULTS = ("ok", "duplicate", "invalid", "error")
+STRATEGIES = ("simple", "weighted")
+FAIXAS_RISCO = ("BAIXO", "MEDIO", "ALTO", "MUITO_ALTO")
+
+
+def init_metrics() -> None:
+    """Cria as séries rotuladas com valor 0 para o Grafana não exibir "No data".
+
+    Idempotente: `.labels(...)` sem `.inc()` só registra a série.
+    """
+    for routing_key in CONSUMED_ROUTING_KEYS:
+        for result in CONSUMED_RESULTS:
+            EVENTS_CONSUMED.labels(routing_key=routing_key, result=result)
+    for strategy in STRATEGIES:
+        for faixa in FAIXAS_RISCO:
+            SCORE_EVALUATIONS.labels(strategy=strategy, faixa_risco=faixa)
+
+
+init_metrics()

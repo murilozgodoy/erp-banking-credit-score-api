@@ -60,3 +60,13 @@ def test_docs_use_root_path(monkeypatch):
         assert "/score/openapi.json" in c.get("/docs").text
         assert "/score/openapi.json" in c.get("/redoc").text
         assert c.get("/openapi.json").json()["servers"] == [{"url": "/score"}]
+
+
+def test_metric_series_are_initialized_with_zero(client):
+    from app.metrics import init_metrics
+
+    init_metrics()  # idempotente
+    body = client.get("/metrics").text
+    assert 'events_consumed_total{result="duplicate",routing_key="credit.decided"} ' in body
+    assert 'events_consumed_total{result="invalid",routing_key="customer.anamnesis_updated"} ' in body
+    assert 'score_evaluations_total{faixa_risco="MUITO_ALTO",strategy="weighted"} ' in body
