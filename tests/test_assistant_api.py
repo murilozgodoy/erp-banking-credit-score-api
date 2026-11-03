@@ -433,14 +433,35 @@ def test_invalid_final_json_is_503(client, use):
 def test_refusal_returns_safe_answer(client, use):
     me_ok()
     use([message(text("{"), stop_reason="refusal")])
-    before = counter(ASSISTANT_MESSAGES, result="error")
+    before = counter(ASSISTANT_MESSAGES, result="refused")
+    before_error = counter(ASSISTANT_MESSAGES, result="error")
     r = ask(client, rota="/app/estoque")
     assert r.status_code == 200
     body = r.json()
     assert body["resposta"] == REFUSAL_TEXT
     assert body["fontes"] == [] and body["acoes"] == []
     assert body["sugestoes"][0] == "Quais itens estão parados e quanto dinheiro eles prendem?"
-    assert counter(ASSISTANT_MESSAGES, result="error") == before + 1
+    assert counter(ASSISTANT_MESSAGES, result="refused") == before + 1
+    assert counter(ASSISTANT_MESSAGES, result="error") == before_error
+
+
+@respx.mock
+@pytest.mark.parametrize(
+    ("model", "with_fallback"),
+    [("claude-sonnet-5-5", True), ("claude-opus-5-5", True), ("claude-haiku-5-5", False), ("claude-haiku-4-5", False)],
+)
+def test_fallbacks_only_for_supported_models(client, limiter, model, with_fallback):
+    me_ok()
+    fake = FakeClient([final(fontes=[])])
+    service = AssistantService(fake, model, today=lambda: date(2026, 11, 3))
+    app.dependency_overrides[get_assistant_service] = lambda: service
+    app.dependency_overrides[get_rate_limiter] = lambda: limiter
+    assert ask(client).status_code == 200
+    call = fake.beta.messages.calls[0]
+    if with_fallback:
+        assert call["betas"] == [FALLBACK_BETA] and call["fallbacks"] == "default"
+    else:
+        assert "fallbacks" not in call and "betas" not in call
 
 
 # --- 503 / 429 / 409 / 422 ------------------------------------------------------------------

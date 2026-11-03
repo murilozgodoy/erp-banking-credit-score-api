@@ -28,6 +28,8 @@ MIN_CALL_SECONDS = 1.0
 MAX_TOKENS = 8000
 EFFORT = "low"  # chat: respostas curtas e rápidas dentro do prazo de 45 s
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
+# modelos que aceitam `fallbacks: "default"`; nos demais (ex.: Haiku 5.5) o parâmetro é omitido
+FALLBACK_MODELS = frozenset({"claude-fable-5-1", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5"})
 MAX_RESPOSTA_CHARS = 6000
 MAX_SUGESTAO_CHARS = 150
 MAX_LABEL_CHARS = 60
@@ -322,7 +324,7 @@ class AssistantService:
             content = list(getattr(response, "content", None) or [])
             if stop_reason == "refusal":
                 logger.warning("assistente: recusa do modelo")
-                return AssistantResult(self._refusal(rota), result="error", tool_calls=turn.tool_calls)
+                return AssistantResult(self._refusal(rota), result="refused", tool_calls=turn.tool_calls)
             if stop_reason == "max_tokens":
                 logger.warning("assistente: resposta cortada por max_tokens")
                 raise AssistantUnavailable("error", turn.tool_calls)
@@ -353,10 +355,11 @@ class AssistantService:
             "messages": messages,
             "tools": TOOL_DEFINITIONS,
             "output_config": {"effort": EFFORT, "format": {"type": "json_schema", "schema": REPLY_SCHEMA}},
-            "betas": [FALLBACK_BETA],
-            "fallbacks": "default",
             "timeout": timeout,
         }
+        if self.model in FALLBACK_MODELS:
+            kwargs["betas"] = [FALLBACK_BETA]
+            kwargs["fallbacks"] = "default"
         if forced:
             kwargs["tool_choice"] = {"type": "none"}
         try:

@@ -39,7 +39,8 @@ BUSINESS_ANALYSES = Counter(
 
 ASSISTANT_MESSAGES = Counter(
     "assistant_messages_total",
-    "Mensagens ao Assistente ErpIa por resultado (disabled = sem ANTHROPIC_API_KEY, limited = 429, pendente = 409)",
+    "Mensagens ao Assistente ErpIa por resultado (disabled = sem ANTHROPIC_API_KEY, limited = 429, pendente = 409, "
+    "refused = recusa do modelo)",
     ["result"],
 )
 
@@ -69,7 +70,7 @@ FAIXAS_RISCO = ("BAIXO", "MEDIO", "ALTO", "MUITO_ALTO")
 LLM_RESULTS = ("ok", "error", "timeout", "disabled")
 ANALYSIS_STATUSES = ("APROVADO", "ANALISE_MANUAL")
 ANALYSIS_GERADO_POR = ("regras", "llm+regras")
-ASSISTANT_RESULTS = ("ok", "error", "timeout", "limited", "disabled", "pendente")
+ASSISTANT_RESULTS = ("ok", "error", "timeout", "limited", "disabled", "pendente", "refused")
 ASSISTANT_TOOLS = (
     "consultar_visao_geral",
     "consultar_vendas",

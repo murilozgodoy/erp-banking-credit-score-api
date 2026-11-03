@@ -181,7 +181,7 @@ Chat com IA do portal (contrato: seção 9 do `PORTAL_CLIENTE.md`). Sem streamin
   `GET /me` não diz `APROVADO`.
 
 **Como funciona:** loop manual de tool use com o Claude (`ANALYSIS_MODEL`, effort `low`, `fallbacks: "default"` do
-beta `server-side-fallback-2026-07-01` para recusas). As ferramentas são só de leitura e simulação e chamam o
+beta `server-side-fallback-2026-07-01` para recusas, só nos modelos que o aceitam). As ferramentas são só de leitura e simulação e chamam o
 Transactions com o token do cliente (timeout de 10 s cada):
 
 | Ferramenta | Chamada | `fontes.tipo` |
