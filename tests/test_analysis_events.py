@@ -52,7 +52,9 @@ def test_submitted_persists_and_returns_event(db_session, business_payload):
     assert routing_key == "business.analysis_completed"
     assert set(event) == {
         "event_id", "event_type", "occurred_at", "customer_id", "status", "score", "faixa_risco", "gerado_por",
+        "source_event_id",
     }
+    assert event["source_event_id"] == "evt-sub-1"
     assert event["event_type"] == "business.analysis_completed"
     assert event["customer_id"] == 7 and event["status"] == "APROVADO" and event["gerado_por"] == "regras"
     row = BusinessAnalysisRepository(db_session).latest(7)
@@ -120,6 +122,7 @@ def test_redelivery_after_crash_republishes_same_event(db_session, business_payl
     (rk, ev2), = again.events
     assert rk == "business.analysis_completed"
     assert ev2["event_id"] == ev1["event_id"]  # mesmo id: o Onboarding deduplica
+    assert ev2["source_event_id"] == ev1["source_event_id"] == "evt-sub-1"  # vincula à submissão de origem
     assert {k: ev2[k] for k in ("customer_id", "status", "score", "faixa_risco", "gerado_por")} == {
         k: ev1[k] for k in ("customer_id", "status", "score", "faixa_risco", "gerado_por")
     }
@@ -235,6 +238,13 @@ async def test_handle_message_publish_failure_requeues(session_factory, business
 def test_analysis_completed_event_envelope():
     ev = analysis_completed_event(1, "APROVADO", 800, "BAIXO", "regras")
     assert ev["event_type"] == "business.analysis_completed" and ev["event_id"] and ev["occurred_at"]
+    assert ev["source_event_id"] is None
+
+
+def test_analysis_completed_event_carries_source_event_id():
+    ev = analysis_completed_event(1, "APROVADO", 800, "BAIXO", "regras", source_event_id="evt-sub-9")
+    assert ev["source_event_id"] == "evt-sub-9"
+    assert ev["event_id"] == analysis_completed_event(1, "APROVADO", 800, "BAIXO", "regras", "evt-sub-9")["event_id"]
 
 
 def published(result):

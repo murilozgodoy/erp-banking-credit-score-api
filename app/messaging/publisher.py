@@ -32,7 +32,10 @@ def envelope(event_type: str, event_id: str | None = None, **payload: Any) -> di
 def analysis_completed_event(
     customer_id: int, status: str, score, faixa_risco, gerado_por: str, source_event_id: str | None = None
 ) -> dict:
-    """`event_id` derivado do evento de origem: a republicação após falha tem o mesmo id (idempotente)."""
+    """`event_id` derivado do evento de origem: a republicação após falha tem o mesmo id (idempotente).
+
+    `source_event_id` (o `event_id` do `customer.onboarding_submitted` que gerou a análise) vai no payload para o
+    Onboarding descartar análise atrasada de uma submissão anterior (campo aditivo)."""
     event_id = (
         str(uuid.uuid5(uuid.NAMESPACE_URL, f"{ANALYSIS_COMPLETED}:{source_event_id}")) if source_event_id else None
     )
@@ -44,6 +47,7 @@ def analysis_completed_event(
         score=score,
         faixa_risco=faixa_risco,
         gerado_por=gerado_por,
+        source_event_id=source_event_id,
     )
 
 
