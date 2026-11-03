@@ -62,7 +62,7 @@ def test_submitted_persists_and_returns_event(db_session, business_payload):
 
 def test_submitted_is_idempotent(db_session, business_payload):
     handle_onboarding_submitted(db_session, business_payload)
-    assert handle_onboarding_submitted(db_session, business_payload) == "duplicate"
+    assert handle_onboarding_submitted(db_session, business_payload).result == "duplicate"
     assert BusinessAnalysisRepository(db_session).latest(7).version == 1
 
 
@@ -92,10 +92,45 @@ def test_submitted_invalid(db_session, business_payload, mutate):
 
 def test_submitted_race_is_duplicate(business_payload):
     db = MagicMock()
-    db.scalar.return_value = None
+    db.scalars.return_value.first.return_value = None
     db.commit.side_effect = IntegrityError("x", {}, Exception())
     assert handle_onboarding_submitted(db, business_payload) == "duplicate"
-    db.rollback.assert_called_once()
+    db.rollback.assert_called()
+
+
+def test_submitted_releases_db_connection_during_llm(db_session, business_payload):
+    """O LLM leva até 20 s: a sessão não pode segurar uma transação (e a conexão do pool) nesse tempo."""
+    seen = []
+
+    class SpyLlm(FakeLlm):
+        def analyze(self, payload, rules_result):
+            seen.append(db_session.in_transaction())
+            return super().analyze(payload, rules_result)
+
+    handle_onboarding_submitted(db_session, business_payload, llm=SpyLlm())
+    assert seen == [False]
+
+
+def test_redelivery_after_crash_republishes_same_event(db_session, business_payload):
+    """Queda entre o commit e o publish: a reentrega é duplicata, mas o evento não pode se perder."""
+    first = handle_onboarding_submitted(db_session, business_payload)
+    again = handle_onboarding_submitted(db_session, business_payload)
+    assert isinstance(again, HandlerOutcome) and again.result == "duplicate"
+    (_, ev1), = first.events
+    (rk, ev2), = again.events
+    assert rk == "business.analysis_completed"
+    assert ev2["event_id"] == ev1["event_id"]  # mesmo id: o Onboarding deduplica
+    assert {k: ev2[k] for k in ("customer_id", "status", "score", "faixa_risco", "gerado_por")} == {
+        k: ev1[k] for k in ("customer_id", "status", "score", "faixa_risco", "gerado_por")
+    }
+
+
+def test_redelivery_of_superseded_analysis_does_not_republish(db_session, business_payload):
+    handle_onboarding_submitted(db_session, business_payload)
+    handle_onboarding_submitted(db_session, {**business_payload, "event_id": "evt-sub-2"})
+    assert handle_onboarding_submitted(db_session, business_payload) == "duplicate"
+    handle_onboarding_reviewed(db_session, reviewed(decisao="REPROVADO", event_id="evt-rev-9"))
+    assert handle_onboarding_submitted(db_session, {**business_payload, "event_id": "evt-sub-2"}) == "duplicate"
 
 
 # --- onboarding_reviewed -------------------------------------------------------
@@ -164,16 +199,34 @@ def test_process_body_collects_outbox(session_factory, business_payload):
 async def test_handle_message_publishes_after_commit_then_acks(session_factory, business_payload):
     publisher = MagicMock()
     order = []
-    publisher.publish = AsyncMock(side_effect=lambda rk, ev: order.append(("publish", rk, ev["status"])))
+    publisher.publish = AsyncMock(side_effect=lambda rk, ev: order.append(("publish", rk, ev["status"])) or True)
     msg = fake_message(json.dumps(business_payload).encode())
     msg.ack = AsyncMock(side_effect=lambda: order.append(("ack",)))
     await handle_message(msg, SUBMITTED, session_factory, publisher)
     assert order == [("publish", "business.analysis_completed", "APROVADO"), ("ack",)]
-    # duplicata: não publica de novo, mas faz ack
+    # duplicata da análise vigente: republica o mesmo evento (o Onboarding deduplica) e faz ack
+    first_event = publisher.publish.await_args.args[1]
     publisher.publish.reset_mock()
     msg2 = fake_message(json.dumps(business_payload).encode())
     await handle_message(msg2, SUBMITTED, session_factory, publisher)
-    publisher.publish.assert_not_awaited()
+    assert publisher.publish.await_args.args[1]["event_id"] == first_event["event_id"]
+    msg2.ack.assert_awaited_once()
+
+
+async def test_handle_message_publish_failure_requeues(session_factory, business_payload):
+    """Publisher fora: não pode dar ack (o evento se perderia); volta para a fila e a reentrega republica."""
+    publisher = MagicMock()
+    publisher.publish = AsyncMock(return_value=False)
+    msg = fake_message(json.dumps(business_payload).encode())
+    await handle_message(msg, SUBMITTED, session_factory, publisher)
+    msg.ack.assert_not_awaited()
+    msg.nack.assert_awaited_once_with(requeue=True)
+
+    publisher.publish = AsyncMock(return_value=True)
+    msg2 = fake_message(json.dumps(business_payload).encode())
+    msg2.redelivered = True
+    await handle_message(msg2, SUBMITTED, session_factory, publisher)
+    publisher.publish.assert_awaited_once()
     msg2.ack.assert_awaited_once()
 
 
@@ -189,7 +242,7 @@ def published(result):
 async def test_publisher_disabled_is_noop():
     p = EventPublisher("")
     with patch.object(publisher_mod.aio_pika, "connect_robust", AsyncMock()) as connect:
-        await p.publish("business.analysis_completed", {"event_id": "1"})
+        assert await p.publish("business.analysis_completed", {"event_id": "1"}) is True
         connect.assert_not_awaited()
     await p.close()
 
@@ -209,7 +262,7 @@ async def test_publisher_publishes_persistent_message():
     with patch.object(publisher_mod.aio_pika, "connect_robust", AsyncMock(return_value=connection)) as connect:
         p = EventPublisher("amqp://x/")
         ev = analysis_completed_event(1, "APROVADO", 800, "BAIXO", "regras")
-        await p.publish("business.analysis_completed", ev)
+        assert await p.publish("business.analysis_completed", ev) is True
         await p.publish("business.analysis_completed", ev)
         assert connect.await_count == 1  # conexão reaproveitada
     message = exchange.publish.await_args.args[0]
@@ -241,7 +294,7 @@ async def test_publisher_publish_failure_and_close_failure_are_swallowed():
     before = published("error")
     with patch.object(publisher_mod.aio_pika, "connect_robust", AsyncMock(return_value=connection)):
         p = EventPublisher("amqp://x/")
-        await p.publish("business.analysis_completed", {"event_id": "1"})
+        assert await p.publish("business.analysis_completed", {"event_id": "1"}) is False
         await p.close()
     assert published("error") == before + 1
 

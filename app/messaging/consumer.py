@@ -78,6 +78,8 @@ async def handle_message(
     """Ack no sucesso; erro inesperado volta para a fila uma vez e depois é descartado.
 
     Eventos gerados pelo handler são publicados após o commit e antes do ack (o publisher nunca levanta).
+    Se a publicação falhar, a mensagem volta para a fila: a reentrega cai como duplicata e o handler
+    devolve o mesmo evento para republicar.
     """
     outbox: list[tuple[str, dict]] = []
     try:
@@ -88,7 +90,9 @@ async def handle_message(
         return
     if publisher is not None:
         for routing_key, event in outbox:
-            await publisher.publish(routing_key, event)
+            if not await publisher.publish(routing_key, event):
+                await message.nack(requeue=True)
+                return
     await message.ack()
 
 

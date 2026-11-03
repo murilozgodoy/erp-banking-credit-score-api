@@ -124,8 +124,10 @@ def handle_onboarding_submitted(db: Session, payload: dict, llm=None) -> "str | 
         return RESULT_INVALID
 
     repo = BusinessAnalysisRepository(db)
-    if repo.exists_event(event.event_id):
-        return RESULT_DUPLICATE
+    existing = repo.by_event(event.event_id)
+    if existing is not None:
+        return _republish_if_current(repo, existing)
+    db.rollback()  # libera a conexão do pool durante a análise (o LLM pode levar até 20 s)
 
     outcome = run_analysis(event.model_dump(mode="json"), llm=llm)
     try:
@@ -139,9 +141,23 @@ def handle_onboarding_submitted(db: Session, payload: dict, llm=None) -> "str | 
         event.customer_id, outcome.status, outcome.score, outcome.gerado_por,
     )
     completed = analysis_completed_event(
-        event.customer_id, outcome.status, outcome.score, outcome.faixa_risco, outcome.gerado_por
+        event.customer_id, outcome.status, outcome.score, outcome.faixa_risco, outcome.gerado_por,
+        source_event_id=event.event_id,
     )
     return HandlerOutcome(RESULT_OK, [(ANALYSIS_COMPLETED, completed)])
+
+
+def _republish_if_current(repo: BusinessAnalysisRepository, row) -> "str | HandlerOutcome":
+    """Reentrega de um evento já gravado (ex.: queda entre o commit e o publish): devolve o mesmo
+    `business.analysis_completed` (mesmo `event_id`) se essa análise ainda é a versão vigente."""
+    latest = repo.latest(row.customer_id)
+    if latest is None or latest.id != row.id:
+        return RESULT_DUPLICATE
+    completed = analysis_completed_event(
+        row.customer_id, row.status, row.score, row.faixa_risco, row.gerado_por,
+        source_event_id=row.source_event_id,
+    )
+    return HandlerOutcome(RESULT_DUPLICATE, [(ANALYSIS_COMPLETED, completed)])
 
 
 class OnboardingReviewedEvent(BaseModel):

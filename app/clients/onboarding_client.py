@@ -91,13 +91,16 @@ class OnboardingClient:
             raise OnboardingForbiddenError("Sem permissão para consultar /me no Onboarding (read:self)")
         if resp.status_code >= 400:
             raise OnboardingClientError(f"Onboarding retornou {resp.status_code}")
-        body = resp.json()
-        customer_id = body.get("customer_id")
-        return MeInfo(
-            customer_id=int(customer_id) if customer_id is not None else None,
-            onboarding_status=body.get("onboarding_status"),
-            empresa=body.get("empresa"),
-        )
+        try:
+            body = resp.json()
+            customer_id = body.get("customer_id")
+            return MeInfo(
+                customer_id=int(customer_id) if customer_id is not None else None,
+                onboarding_status=body.get("onboarding_status"),
+                empresa=body.get("empresa"),
+            )
+        except (ValueError, TypeError, AttributeError) as exc:
+            raise OnboardingClientError("Resposta inválida do Onboarding em /me") from exc
 
 
 class MeCache:
