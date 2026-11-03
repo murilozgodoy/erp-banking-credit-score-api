@@ -4,6 +4,7 @@ Sempre roda (com ou sem LLM). Respostas opcionais ausentes não quebram nada: o 
 `valor: null` e a regra correspondente não pontua.
 """
 import math
+import re
 
 from app.analysis.base import BusinessAnalyzer
 from app.analysis.benchmarks import SEGMENTO_NOMES, benchmark_for
@@ -64,6 +65,9 @@ def parcela_price(valor: float, taxa_pct: float, meses: int) -> float:
 # --- Normalização das respostas --------------------------------------------------------------
 
 
+_MILHAR = re.compile(r"^-?[1-9]\d{0,2}(\.\d{3})+$")
+
+
 def _num(value) -> float | None:
     if value is None or isinstance(value, bool):
         return None
@@ -75,6 +79,8 @@ def _num(value) -> float | None:
             return None
         if "," in text and "." in text:
             text = text.replace(".", "").replace(",", ".")
+        elif _MILHAR.match(text):  # "182.000" = 182 mil (separador de milhar brasileiro)
+            text = text.replace(".", "")
         else:
             text = text.replace(",", ".")
         try:
