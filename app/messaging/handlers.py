@@ -36,12 +36,17 @@ class CreditDecidedEvent(BaseModel):
     taxa_juros: float | None = None
 
 
+def _errors(exc: ValidationError) -> list:
+    """Erros de validação sem o valor recebido: o evento traz CNPJ, respostas e observações."""
+    return exc.errors(include_input=False, include_url=False)
+
+
 def handle_credit_decided(db: Session, payload: dict) -> str:
     """Persiste o evento `credit.decided`; idempotente por `event_id`."""
     try:
         event = CreditDecidedEvent.model_validate(payload)
     except ValidationError as exc:
-        logger.warning("evento credit.decided inválido: %s", exc.errors())
+        logger.warning("evento credit.decided inválido: %s", _errors(exc))
         return RESULT_INVALID
 
     exists = db.scalar(
@@ -84,7 +89,7 @@ def handle_anamnesis_updated(db: Session, payload: dict) -> str:
     try:
         event = AnamnesisUpdatedEvent.model_validate(payload)
     except ValidationError as exc:
-        logger.warning("evento customer.anamnesis_updated inválido: %s", exc.errors())
+        logger.warning("evento customer.anamnesis_updated inválido: %s", _errors(exc))
         return RESULT_INVALID
 
     status = db.get(CustomerScoreStatus, event.customer_id)
@@ -120,7 +125,7 @@ def handle_onboarding_submitted(db: Session, payload: dict, llm=None) -> "str | 
     try:
         event = OnboardingSubmittedEvent.model_validate(payload)
     except ValidationError as exc:
-        logger.warning("evento customer.onboarding_submitted inválido: %s", exc.errors())
+        logger.warning("evento customer.onboarding_submitted inválido: %s", _errors(exc))
         return RESULT_INVALID
 
     repo = BusinessAnalysisRepository(db)
@@ -175,7 +180,7 @@ def handle_onboarding_reviewed(db: Session, payload: dict) -> str:
     try:
         event = OnboardingReviewedEvent.model_validate(payload)
     except ValidationError as exc:
-        logger.warning("evento customer.onboarding_reviewed inválido: %s", exc.errors())
+        logger.warning("evento customer.onboarding_reviewed inválido: %s", _errors(exc))
         return RESULT_INVALID
 
     repo = BusinessAnalysisRepository(db)

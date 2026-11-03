@@ -67,16 +67,21 @@ def parse_id(raw: str | None) -> uuid.UUID | None:
         return None
 
 
-def _owned(db: Session, sub: str, conversation_id: uuid.UUID | None) -> AssistantConversation | None:
+def _owned(
+    db: Session, sub: str, conversation_id: uuid.UUID | None, customer_id: int | None = None
+) -> AssistantConversation | None:
+    """Conversa do `sub`, não apagada. Com `customer_id`, também da empresa atual do usuário: quem saiu da empresa
+    (ou entrou em outra) não lê nem continua conversas com os dados da empresa anterior."""
     if conversation_id is None:
         return None
-    return db.scalars(
-        select(AssistantConversation).where(
-            AssistantConversation.id == conversation_id,
-            AssistantConversation.auth0_sub == sub,
-            AssistantConversation.deleted_at.is_(None),
-        )
-    ).first()
+    query = select(AssistantConversation).where(
+        AssistantConversation.id == conversation_id,
+        AssistantConversation.auth0_sub == sub,
+        AssistantConversation.deleted_at.is_(None),
+    )
+    if customer_id is not None:
+        query = query.where(AssistantConversation.customer_id == customer_id)
+    return db.scalars(query).first()
 
 
 def _message(conversation_id: uuid.UUID, role: str, content: str, now: datetime, **extra) -> AssistantMessage:
@@ -120,7 +125,7 @@ def start_turn(
             db.add(_message(conversation.id, m["role"], m["content"], ts, **extra))
         db.flush()
     else:
-        conversation = _owned(db, sub, parse_id(conversation_id))
+        conversation = _owned(db, sub, parse_id(conversation_id), customer_id)
         if conversation is None:
             raise ConversationNotFound
         conversation.updated_at = ts
@@ -186,16 +191,22 @@ def finish_turn(
 # --- leitura e exclusão ----------------------------------------------------------------------
 
 
-def list_conversations(db: Session, sub: str, limit: int, offset: int) -> list[dict]:
+def list_conversations(
+    db: Session, sub: str, limit: int, offset: int, customer_id: int | None = None
+) -> list[dict]:
     count = (
         select(func.count(AssistantMessage.id))
         .where(AssistantMessage.conversation_id == AssistantConversation.id, VISIBLE)
         .correlate(AssistantConversation)
         .scalar_subquery()
     )
+    query = select(AssistantConversation, count).where(
+        AssistantConversation.auth0_sub == sub, AssistantConversation.deleted_at.is_(None)
+    )
+    if customer_id is not None:
+        query = query.where(AssistantConversation.customer_id == customer_id)
     rows = db.execute(
-        select(AssistantConversation, count)
-        .where(AssistantConversation.auth0_sub == sub, AssistantConversation.deleted_at.is_(None))
+        query
         .order_by(AssistantConversation.updated_at.desc(), AssistantConversation.created_at.desc())
         .limit(limit)
         .offset(offset)
@@ -205,8 +216,8 @@ def list_conversations(db: Session, sub: str, limit: int, offset: int) -> list[d
     ]
 
 
-def get_conversation(db: Session, sub: str, conversation_id: str) -> dict | None:
-    conversation = _owned(db, sub, parse_id(conversation_id))
+def get_conversation(db: Session, sub: str, conversation_id: str, customer_id: int | None = None) -> dict | None:
+    conversation = _owned(db, sub, parse_id(conversation_id), customer_id)
     if conversation is None:
         return None
     rows = db.scalars(
