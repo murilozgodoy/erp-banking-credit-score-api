@@ -37,12 +37,15 @@ Cobertura mínima: **80%**.
 
 | Variável             | Padrão                        | Descrição                                                   |
 | -------------------- | ----------------------------- | ----------------------------------------------------------- |
-| `DATABASE_URL`       | `sqlite:///./credit_score.db` | Em produção, PostgreSQL (`postgresql+psycopg://...`)        |
+| `DATABASE_URL`       | `sqlite:///./credit_score.db` | Em produção: `postgresql+psycopg://erp:erp@postgres:5432/erp?options=-csearch_path%3Dcredit_score` (schema criado no startup) |
 | `ONBOARDING_API_URL` | `http://localhost:8081`       | URL da Onboarding API                                       |
 | `PORT`               | `8082`                        | Porta usada por `python -m app.main` (porta aberta na EC2)  |
 | `AUTH0_DOMAIN`       | —                             | Domínio do tenant, sem `https://`                           |
 | `AUTH0_AUDIENCE`     | —                             | Identifier da API no Auth0: `https://erp-banking-api`       |
 | `CORS_ORIGINS`       | `["http://localhost:5173"]`   | Origens do frontend, em JSON                                |
+| `ROOT_PATH`          | vazio                         | Prefixo no API Gateway (`/score`), para o `/docs` funcionar |
+| `RABBITMQ_URL`       | vazio                         | `amqp://erp:erp@rabbitmq:5672/`; vazio = consumer desligado |
+| `LOG_LEVEL`          | `INFO`                        | Nível dos logs JSON                                         |
 
 ## Endpoints
 
@@ -53,6 +56,9 @@ Cobertura mínima: **80%**.
 | GET    | `/scores/evaluations?customer_id=`    | `read:scores`  | Histórico de avaliações do cliente (mais recente primeiro)         |
 | GET    | `/scores/customers/{id}/latest`       | `read:scores`  | Avaliação vigente do cliente (usada pela Transactions API)         |
 | GET    | `/scores/strategies`                  | `read:scores`  | Strategies registradas na `ScoreStrategyFactory`                   |
+| GET    | `/scores/decisions?customer_id=`      | `read:scores`  | Decisões de crédito recebidas via evento `credit.decided` (mais recente primeiro) |
+| GET    | `/scores/customers/{id}/status`       | `read:scores`  | `desatualizado: true` se a anamnese mudou depois da última avaliação |
+| GET    | `/metrics`                            | pública        | Métricas Prometheus (não exposta pelo gateway)                     |
 
 ### Strategies disponíveis
 
@@ -71,3 +77,26 @@ que aplica as próprias permissões. Por isso calcular score exige `write:scores
 `read:customers` no Onboarding; se faltar a segunda, a resposta é 403 com o motivo.
 
 Os testes usam chaves RSA e tokens locais ou autenticação simulada, sem chamadas ao Auth0.
+
+## Etapa 4 — eventos, métricas, logs e Docker
+
+**Eventos (RabbitMQ, aio-pika).** Com `RABBITMQ_URL` definido, um consumer roda em background no lifespan
+(reconexão automática a cada 5 s) e declara a exchange `erp.events` (topic, durável):
+
+| Fila (durável)                     | Routing key                  | Efeito |
+| ---------------------------------- | ---------------------------- | ------ |
+| `credit-score.credit-decided`      | `credit.decided`             | Grava em `credit_decision_events` (idempotente por `event_id`) → `GET /scores/decisions` |
+| `credit-score.anamnesis-updated`   | `customer.anamnesis_updated` | Marca o score do cliente como desatualizado (`customer_score_status`); nova avaliação limpa a marca |
+
+JSON inválido é descartado (ack, `result=invalid`); erro inesperado volta para a fila uma vez e depois é descartado.
+
+**Métricas** (`GET /metrics`): padrão do `prometheus-fastapi-instrumentator` (`http_requests_total`,
+`http_request_duration_seconds`, `http_request_duration_highr_seconds`) +
+`score_evaluations_total{strategy,faixa_risco}` e `events_consumed_total{routing_key,result=ok|duplicate|invalid|error}`.
+
+**Logs:** uma linha JSON por requisição (`request_id`, `method`, `path`, `status`, `duration_ms`); o `X-Request-ID`
+recebido do gateway é reaproveitado (ou gerado) e devolvido no header da resposta.
+
+**Docker:** `docker build -t credit-score-api .` → imagem `python:3.13-slim`, usuário não-root, `HEALTHCHECK` em
+`/health`, porta via `PORT` (8082), 1 worker. Em push na `main` o CI publica
+`ghcr.io/murilozgodoy/erp-banking-credit-score-api:latest` e `:<sha>`.
