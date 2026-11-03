@@ -3,13 +3,15 @@ import contextlib
 from contextlib import asynccontextmanager
 from functools import partial
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from prometheus_fastapi_instrumentator import Instrumentator
 
 from app import models  # noqa: F401  (registra as tabelas no metadata)
 from app.auth import require_auth
+from app.clients.onboarding_client import MemberSuspendedError
 from app.config import settings
 from app.logging_config import RequestIDMiddleware, configure_logging
 from app.database import SessionLocal, init_db
@@ -91,6 +93,15 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
     app.include_router(health.router)
+
+    @app.exception_handler(MemberSuspendedError)
+    async def _member_suspended(request: Request, exc: MemberSuspendedError):
+        return JSONResponse(status_code=403, content={"error": "MEMBRO_SUSPENSO"})
+
+    @app.exception_handler(assistant.AssistantPermissionDenied)
+    async def _sem_permissao(request: Request, exc: Exception):
+        return JSONResponse(status_code=403, content=assistant.SEM_PERMISSAO_BODY)
+
     app.add_middleware(
         CORSMiddleware, allow_origins=settings.cors_origins,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],

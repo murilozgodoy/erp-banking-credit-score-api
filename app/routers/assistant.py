@@ -127,9 +127,31 @@ def _error(status_code: int, body: dict, headers: dict | None = None) -> JSONRes
 
 
 NOT_FOUND_BODY = {"error": "CONVERSA_NAO_ENCONTRADA"}
+PERMISSAO_ASSISTENTE = "usar_assistente"
+PERMISSAO_FINANCEIRO = "ver_financeiro"
+SEM_PERMISSAO_BODY = {"error": "SEM_PERMISSAO", "permissao": PERMISSAO_ASSISTENTE}
+
+
+def _lacks(me, permissao: str) -> bool:
+    """Membro presente sem a permissão. `membro` nulo/ausente (Onboarding antigo, dono antes da migração) libera."""
+    return me.membro is not None and not me.membro.can(permissao)
+
+
+def require_assistant_access(principal: Principal = Depends(require_permission("read:self"))) -> Principal:
+    """Histórico do assistente: exige `usar_assistente` quando o /me traz `membro`."""
+    if _lacks(_resolve_me(principal), PERMISSAO_ASSISTENTE):
+        raise AssistantPermissionDenied()
+    return principal
+
+
+class AssistantPermissionDenied(Exception):
+    """Vira 403 `SEM_PERMISSAO_BODY` pelo handler de app.main."""
 NOT_FOUND = {404: {"description": '`{"error":"CONVERSA_NAO_ENCONTRADA"}` (inexistente, de outro usuário ou apagada)'}}
+FORBIDDEN_DESC = '`{"error":"SEM_PERMISSAO","permissao":"usar_assistente"}` ou `{"error":"MEMBRO_SUSPENSO"}`'
+FORBIDDEN = {403: {"description": FORBIDDEN_DESC}}
 ERRORS = {
     **NOT_FOUND,
+    **FORBIDDEN,
     409: {"description": 'Onboarding não aprovado: `{"error":"ONBOARDING_PENDENTE","status":...}`'},
     429: {"description": '`{"error":"LIMITE_ASSISTENTE"}` (10 mensagens/min por usuário)'},
     503: {
@@ -161,11 +183,14 @@ def post_assistant_message(
         if service is None:
             result = "disabled"
             return _error(503, {"error": "ASSISTENTE_INDISPONIVEL"})
+        me = _resolve_me(principal)
+        if _lacks(me, PERMISSAO_ASSISTENTE):  # antes do rate limit e de gravar qualquer coisa
+            result = "sem_permissao"
+            return _error(403, SEM_PERMISSAO_BODY)
         allowed, retry_after = limiter.acquire(principal.subject)
         if not allowed:
             result = "limited"
             return _error(429, {"error": "LIMITE_ASSISTENTE"}, {"Retry-After": str(retry_after)})
-        me = _resolve_me(principal)
         if me.customer_id is not None and me.onboarding_status != "APROVADO":
             me = _resolve_me(principal, fresh=True)  # o status em cache pode ser anterior à aprovação
         if me.customer_id is None or me.onboarding_status != "APROVADO":
@@ -200,7 +225,9 @@ def post_assistant_message(
         ran = True
         llm_started = time.perf_counter()
         try:
-            outcome = service.answer(turn.history, body.rota, tools)
+            outcome = service.answer(
+                turn.history, body.rota, tools, financeiro=not _lacks(me, PERMISSAO_FINANCEIRO)
+            )
         except AssistantUnavailable as exc:
             result, tool_calls = exc.kind, exc.tool_calls
             _finish(session_factory, turn.conversation_id, None, "error", service.model,
@@ -247,22 +274,25 @@ def _finish(session_factory, conversation_id, reply, result, model, input_tokens
 # --- histórico ----------------------------------------------------------------------------------
 
 
-@router.get("/me/assistant/conversations", response_model=list[ConversationSummary])
+@router.get("/me/assistant/conversations", response_model=list[ConversationSummary], responses=FORBIDDEN)
 def list_conversations(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
-    principal: Principal = Depends(require_permission("read:self")),
+    principal: Principal = Depends(require_assistant_access),
 ):
     """Conversas do usuário dono do token, não apagadas, da mais recente para a mais antiga."""
     return history.list_conversations(db, principal.subject, limit, offset)
 
 
-@router.get("/me/assistant/conversations/{conversation_id}", response_model=ConversationDetail, responses=NOT_FOUND)
+@router.get(
+    "/me/assistant/conversations/{conversation_id}", response_model=ConversationDetail,
+    responses={**NOT_FOUND, **FORBIDDEN},
+)
 def get_conversation(
     conversation_id: str,
     db: Session = Depends(get_db),
-    principal: Principal = Depends(require_permission("read:self")),
+    principal: Principal = Depends(require_assistant_access),
 ):
     """Mensagens da conversa em ordem (pergunta e resposta final; nunca o conteúdo das ferramentas)."""
     found = history.get_conversation(db, principal.subject, conversation_id)
@@ -270,12 +300,13 @@ def get_conversation(
 
 
 @router.delete(
-    "/me/assistant/conversations/{conversation_id}", status_code=204, response_class=Response, responses=NOT_FOUND
+    "/me/assistant/conversations/{conversation_id}", status_code=204, response_class=Response,
+    responses={**NOT_FOUND, **FORBIDDEN},
 )
 def delete_conversation(
     conversation_id: str,
     db: Session = Depends(get_db),
-    principal: Principal = Depends(require_permission("read:self")),
+    principal: Principal = Depends(require_assistant_access),
 ):
     """Soft delete; a conversa some da API na hora e do banco depois da retenção (30 dias)."""
     if not history.soft_delete(db, principal.subject, conversation_id):
@@ -283,10 +314,12 @@ def delete_conversation(
     return Response(status_code=204)
 
 
-@router.delete("/me/assistant/conversations", status_code=204, response_class=Response)
+@router.delete(
+    "/me/assistant/conversations", status_code=204, response_class=Response, responses=FORBIDDEN
+)
 def delete_all_conversations(
     db: Session = Depends(get_db),
-    principal: Principal = Depends(require_permission("read:self")),
+    principal: Principal = Depends(require_assistant_access),
 ):
     """Apaga (soft delete) todo o histórico do usuário (LGPD); idempotente."""
     history.soft_delete_all(db, principal.subject)

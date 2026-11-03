@@ -20,6 +20,46 @@ class OnboardingForbiddenError(OnboardingClientError):
     """O token repassado não tem permissão no Onboarding (read:customers)."""
 
 
+class MemberSuspendedError(OnboardingForbiddenError):
+    """O usuário é membro SUSPENSO da empresa: o Onboarding responde 403 `{"error":"MEMBRO_SUSPENSO"}`."""
+
+
+@dataclass(frozen=True)
+class MemberInfo:
+    """`membro` de `GET /me` (Fase 2): papel e permissões do usuário na empresa."""
+
+    id: int | None
+    papel: str | None
+    permissoes: frozenset[str]
+    limite_pagamento: float | None = None
+    status: str | None = None
+
+    def can(self, permissao: str) -> bool:
+        return permissao in self.permissoes
+
+
+def _parse_member(raw) -> MemberInfo | None:
+    """`membro` ausente ou nulo (Onboarding antigo, ou o dono antes da migração) → `None`."""
+    if not isinstance(raw, dict):
+        return None
+    limite = raw.get("limite_pagamento")
+    return MemberInfo(
+        id=raw.get("id"),
+        papel=raw.get("papel"),
+        permissoes=frozenset(str(p) for p in (raw.get("permissoes") or [])),
+        limite_pagamento=float(limite) if limite is not None else None,
+        status=raw.get("status"),
+    )
+
+
+def _error_code(resp) -> str | None:
+    try:
+        body = resp.json()
+    except ValueError:
+        return None
+    return body.get("error") if isinstance(body, dict) else None
+
+
 @dataclass(frozen=True)
 class MeInfo:
     """Resposta de `GET /me` do Onboarding: quem é o cliente dono do token."""
@@ -27,6 +67,7 @@ class MeInfo:
     customer_id: int | None
     onboarding_status: str | None
     empresa: dict | None = None
+    membro: MemberInfo | None = None
 
 
 class OnboardingClient:
@@ -87,6 +128,8 @@ class OnboardingClient:
                 resp = client.get(url, headers=self._headers())
         except httpx.HTTPError as exc:
             raise OnboardingClientError(f"Falha ao consultar Onboarding: {exc}") from exc
+        if resp.status_code == 403 and _error_code(resp) == "MEMBRO_SUSPENSO":
+            raise MemberSuspendedError("Membro suspenso na empresa")
         if resp.status_code in (401, 403):
             raise OnboardingForbiddenError("Sem permissão para consultar /me no Onboarding (read:self)")
         if resp.status_code >= 400:
@@ -98,20 +141,23 @@ class OnboardingClient:
                 customer_id=int(customer_id) if customer_id is not None else None,
                 onboarding_status=body.get("onboarding_status"),
                 empresa=body.get("empresa"),
+                membro=_parse_member(body.get("membro")),
             )
         except (ValueError, TypeError, AttributeError) as exc:
             raise OnboardingClientError("Resposta inválida do Onboarding em /me") from exc
 
 
 class MeCache:
-    """Cache em memória de `GET /me` por `sub` (TTL padrão de 5 min, contrato seção 2).
+    """Cache em memória de `GET /me` por `sub` (TTL em `ME_CACHE_TTL_SECONDS`, padrão 60 s).
+
+    Mudanças de permissão de membro podem levar até o TTL para valer aqui.
 
     Só guarda quem já tem `customer_id` (o vínculo sub → customer não muda); sem customer
     a consulta é sempre refeita, para o cliente que acabou de se cadastrar não esperar o TTL.
     """
 
-    def __init__(self, ttl_seconds: float = 300.0, clock=time.monotonic):
-        self.ttl = ttl_seconds
+    def __init__(self, ttl_seconds: float | None = None, clock=time.monotonic):
+        self.ttl = settings.me_cache_ttl_seconds if ttl_seconds is None else ttl_seconds
         self.clock = clock
         self._entries: dict[str, tuple[float, MeInfo]] = {}
         self._lock = threading.Lock()
