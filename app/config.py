@@ -6,6 +6,8 @@ class Settings(BaseSettings):
 
     database_url: str = "sqlite:///./credit_score.db"
     onboarding_api_url: str = "http://localhost:8081"
+    # Cache de GET /me do Onboarding por sub: mudanças de permissão de membro levam até esse tempo para valer.
+    me_cache_ttl_seconds: float = 60.0
     log_level: str = "INFO"
     app_name: str = "erp-banking-credit-score-api"
     auth0_domain: str = ""

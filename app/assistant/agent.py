@@ -296,6 +296,13 @@ def _today() -> date:
     return datetime.now(BRT).date()
 
 
+SEM_FINANCEIRO_TEXT = (
+    "Permissões do usuário (dado do sistema): este usuário NÃO tem acesso aos dados financeiros da empresa "
+    "(permissão ver_financeiro) e você não tem ferramentas nesta conversa. Não invente números. Se a pergunta "
+    "depender de dados financeiros, explique que ele precisa pedir acesso a um administrador da empresa."
+)
+
+
 class AssistantService:
     def __init__(
         self,
@@ -318,7 +325,7 @@ class AssistantService:
 
     # --- prompt ---------------------------------------------------------------------------
 
-    def system_blocks(self, rota: str | None) -> list[dict]:
+    def system_blocks(self, rota: str | None, financeiro: bool = True) -> list[dict]:
         hoje = self.today()
         tela = f"{ROTAS[rota]} ({rota})" if rota else "não informada"
         contexto = (
@@ -330,14 +337,16 @@ class AssistantService:
         return [
             {"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}},
             {"type": "text", "text": contexto},
-        ]
+        ] + ([] if financeiro else [{"type": "text", "text": SEM_FINANCEIRO_TEXT}])
 
     # --- loop -----------------------------------------------------------------------------
 
-    def answer(self, history: list[dict], rota: str | None, tools: ToolExecutor) -> AssistantResult:
+    def answer(
+        self, history: list[dict], rota: str | None, tools: ToolExecutor, financeiro: bool = True
+    ) -> AssistantResult:
         turn = _Turn()
         try:
-            result = self._loop(history, rota, tools, turn)
+            result = self._loop(history, rota, tools, turn, financeiro)
         except AssistantUnavailable as exc:
             exc.tool_calls = turn.tool_calls
             exc.input_tokens, exc.output_tokens = turn.input_tokens, turn.output_tokens
@@ -346,13 +355,15 @@ class AssistantService:
         result.input_tokens, result.output_tokens = turn.input_tokens, turn.output_tokens
         return result
 
-    def _loop(self, history: list[dict], rota: str | None, tools: ToolExecutor, turn: _Turn) -> AssistantResult:
+    def _loop(
+        self, history: list[dict], rota: str | None, tools: ToolExecutor, turn: _Turn, financeiro: bool = True
+    ) -> AssistantResult:
         rota = normalize_rota(rota)
         deadline = self.clock() + self.deadline_seconds
         messages = _api_messages(history)
         forced = False
         for _ in range(self.max_tool_calls + 2):
-            response = self._create(messages, rota, self._remaining(deadline, turn), forced, turn)
+            response = self._create(messages, rota, self._remaining(deadline, turn), forced, turn, financeiro)
             turn.add_usage(response)
             stop_reason = getattr(response, "stop_reason", None)
             content = list(getattr(response, "content", None) or [])
@@ -381,19 +392,22 @@ class AssistantService:
             raise AssistantUnavailable("timeout", turn.tool_calls)
         return remaining
 
-    def _create(self, messages: list, rota: str | None, timeout: float, forced: bool, turn: _Turn):
+    def _create(
+        self, messages: list, rota: str | None, timeout: float, forced: bool, turn: _Turn, financeiro: bool = True
+    ):
         kwargs: dict[str, Any] = {
             "model": self.model,
             "max_tokens": MAX_TOKENS,
-            "system": self.system_blocks(rota),
+            "system": self.system_blocks(rota, financeiro),
             "messages": messages,
-            "tools": TOOL_DEFINITIONS,
             "output_config": {"effort": EFFORT, "format": {"type": "json_schema", "schema": REPLY_SCHEMA}},
             "betas": [FALLBACK_BETA],
             "fallbacks": "default",
             "timeout": timeout,
         }
-        if forced:
+        if financeiro:  # sem ver_financeiro, nenhuma ferramenta: todas expõem dado financeiro
+            kwargs["tools"] = TOOL_DEFINITIONS
+        if forced and financeiro:
             kwargs["tool_choice"] = {"type": "none"}
         try:
             return self._client.beta.messages.create(**kwargs)

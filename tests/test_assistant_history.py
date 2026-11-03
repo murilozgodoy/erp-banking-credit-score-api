@@ -230,13 +230,13 @@ def test_post_with_foreign_deleted_or_unknown_conversation_is_404(client, use, e
 @respx.mock
 def test_429_and_409_create_nothing(client, use, engine, limiter):
     use([final(fontes=[])])
+    respx.get(f"{app_onb()}/me").mock(
+        return_value=httpx.Response(200, json={"customer_id": 7, "onboarding_status": "EM_ANALISE"})
+    )
     for _ in range(10):
         limiter.acquire(SUB)
     assert post(client, "Oi").status_code == 429
     limiter.clear()
-    respx.get(f"{app_onb()}/me").mock(
-        return_value=httpx.Response(200, json={"customer_id": 7, "onboarding_status": "EM_ANALISE"})
-    )
     assert post(client, "Oi").status_code == 409
     assert all_rows(engine, AssistantConversation) == []
     assert all_rows(engine, AssistantMessage) == []
@@ -381,7 +381,9 @@ def test_no_db_connection_is_held_during_llm_call(client, use, tmp_path, busines
 # --- listar, ler e apagar ----------------------------------------------------------------------
 
 
+@respx.mock
 def test_list_conversations_newest_first_with_pagination(client, engine):
+    me_ok()
     base = datetime(2026, 11, 1, tzinfo=timezone.utc)
     ids = [make_conversation(engine, n_messages=i + 1, updated_at=base + timedelta(hours=i), titulo=f"C{i}")
            for i in range(3)]
@@ -426,7 +428,9 @@ def test_get_conversation_messages(client, use, engine):
     assert assistant["created_at"].endswith("Z")
 
 
+@respx.mock
 def test_get_conversation_404s(client, engine):
+    me_ok()
     other = make_conversation(engine, sub="auth0|outro", n_messages=2)
     deleted = make_conversation(engine, deleted_at=datetime.now(timezone.utc))
     for conv_id in (other, deleted, str(uuid.uuid4()), "xyz"):
@@ -434,7 +438,9 @@ def test_get_conversation_404s(client, engine):
         assert r.status_code == 404 and r.json() == {"error": "CONVERSA_NAO_ENCONTRADA"}
 
 
+@respx.mock
 def test_delete_one_conversation(client, engine):
+    me_ok()
     mine = make_conversation(engine, n_messages=2)
     keep = make_conversation(engine, n_messages=2)
     other = make_conversation(engine, sub="auth0|outro", n_messages=2)
@@ -452,7 +458,9 @@ def test_delete_one_conversation(client, engine):
     assert len(all_rows(engine, AssistantMessage)) == 6
 
 
+@respx.mock
 def test_delete_all_conversations_only_for_this_sub(client, engine):
+    me_ok()
     make_conversation(engine, n_messages=2)
     make_conversation(engine, n_messages=2)
     other = make_conversation(engine, sub="auth0|outro", n_messages=2)

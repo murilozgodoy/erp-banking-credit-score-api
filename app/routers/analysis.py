@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.analysis.repository import BusinessAnalysisRepository, em_analise_response, to_response
 from app.auth import Principal, require_permission
 from app.clients.onboarding_client import (
+    MemberSuspendedError,
     OnboardingClient,
     OnboardingClientError,
     OnboardingForbiddenError,
@@ -23,6 +24,8 @@ def _resolve_me(principal: Principal, fresh: bool = False):
     client = OnboardingClient(access_token=principal.token)
     try:
         return me_cache.get(principal.subject, client.get_me, fresh=fresh)
+    except MemberSuspendedError:
+        raise  # vira 403 {"error":"MEMBRO_SUSPENSO"} pelo handler de app.main
     except OnboardingForbiddenError as exc:
         raise HTTPException(status.HTTP_403_FORBIDDEN, str(exc))
     except OnboardingClientError as exc:
