@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     analysis_model: str = "claude-sonnet-5-5"
     analysis_timeout_seconds: float = 20.0
+    # Assistente ErpIa: ferramentas leem o Transactions com o token do cliente (token relay).
+    transactions_api_url: str = "http://transactions-api:8080"
 
 
 settings = Settings()

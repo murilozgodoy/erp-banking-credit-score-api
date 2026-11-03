@@ -20,7 +20,7 @@ from app.messaging.handlers import (
     handle_onboarding_submitted,
 )
 from app.messaging.publisher import EventPublisher
-from app.routers import analysis, health, scores
+from app.routers import analysis, assistant, health, scores
 
 BINDINGS = [
     Binding("credit-score.credit-decided", "credit.decided", handle_credit_decided),
@@ -91,6 +91,7 @@ def create_app() -> FastAPI:
     app.add_middleware(RequestIDMiddleware)  # mais externo: cobre CORS, auth e erros
     app.include_router(scores.router, dependencies=[Depends(require_auth)])
     app.include_router(analysis.router, dependencies=[Depends(require_auth)])
+    app.include_router(assistant.router, dependencies=[Depends(require_auth)])
     Instrumentator(excluded_handlers=["/metrics"]).instrument(app).expose(
         app, endpoint="/metrics", include_in_schema=False
     )

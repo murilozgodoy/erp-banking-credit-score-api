@@ -37,6 +37,24 @@ BUSINESS_ANALYSES = Counter(
     ["status", "gerado_por", "segmento"],
 )
 
+ASSISTANT_MESSAGES = Counter(
+    "assistant_messages_total",
+    "Mensagens ao Assistente ErpIa por resultado (disabled = sem ANTHROPIC_API_KEY, limited = 429, pendente = 409)",
+    ["result"],
+)
+
+ASSISTANT_TOOL_CALLS = Counter(
+    "assistant_tool_calls_total",
+    "Chamadas de ferramenta feitas pelo Assistente ErpIa (inclui as que falharam)",
+    ["tool"],
+)
+
+ASSISTANT_REQUEST_DURATION = Histogram(
+    "assistant_request_duration_seconds",
+    "Duração das respostas do Assistente ErpIa que chegaram a chamar o LLM",
+    buckets=(1, 2, 5, 10, 15, 20, 30, 45, 60),
+)
+
 CONSUMED_ROUTING_KEYS = (
     "credit.decided",
     "customer.anamnesis_updated",
@@ -51,6 +69,18 @@ FAIXAS_RISCO = ("BAIXO", "MEDIO", "ALTO", "MUITO_ALTO")
 LLM_RESULTS = ("ok", "error", "timeout", "disabled")
 ANALYSIS_STATUSES = ("APROVADO", "ANALISE_MANUAL")
 ANALYSIS_GERADO_POR = ("regras", "llm+regras")
+ASSISTANT_RESULTS = ("ok", "error", "timeout", "limited", "disabled", "pendente")
+ASSISTANT_TOOLS = (
+    "consultar_visao_geral",
+    "consultar_vendas",
+    "consultar_recebiveis",
+    "consultar_contas_a_pagar",
+    "consultar_estoque",
+    "consultar_pendencias",
+    "consultar_ofertas_credito",
+    "simular_credito",
+    "consultar_analise",
+)
 SEGMENTOS = (
     "varejo", "alimentacao", "servicos", "saude", "tecnologia",
     "industria", "agro", "construcao", "outro",
@@ -73,6 +103,10 @@ def init_metrics() -> None:
             SCORE_EVALUATIONS.labels(strategy=strategy, faixa_risco=faixa)
     for result in LLM_RESULTS:
         LLM_REQUESTS.labels(result=result)
+    for result in ASSISTANT_RESULTS:
+        ASSISTANT_MESSAGES.labels(result=result)
+    for tool in ASSISTANT_TOOLS:
+        ASSISTANT_TOOL_CALLS.labels(tool=tool)
     for status in ANALYSIS_STATUSES:
         for gerado_por in ANALYSIS_GERADO_POR:
             for segmento in SEGMENTOS:
