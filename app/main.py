@@ -1,3 +1,5 @@
+import asyncio
+import contextlib
 from contextlib import asynccontextmanager
 from functools import partial
 
@@ -12,6 +14,7 @@ from app.config import settings
 from app.logging_config import RequestIDMiddleware, configure_logging
 from app.database import SessionLocal, init_db
 from app.analysis.llm import build_llm_analyzer
+from app.assistant.history import purge_loop
 from app.messaging.consumer import Binding, EventConsumer
 from app.messaging.handlers import (
     handle_anamnesis_updated,
@@ -62,9 +65,15 @@ async def lifespan(app: FastAPI):
     app.state.publisher = publisher
     consumer = build_consumer(publisher)
     consumer.start()
+    purge = asyncio.create_task(
+        purge_loop(SessionLocal, settings.assistant_retention_days, settings.assistant_purge_interval_hours)
+    )
     try:
         yield
     finally:
+        purge.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await purge
         await consumer.stop()
         await publisher.close()
 

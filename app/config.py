@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     analysis_timeout_seconds: float = 20.0
     # Assistente ErpIa: ferramentas leem o Transactions com o token do cliente (token relay).
     transactions_api_url: str = "http://transactions-api:8080"
+    # Histórico do Assistente: conversas apagadas (soft delete) somem de vez depois de N dias.
+    assistant_retention_days: int = 30
+    assistant_purge_interval_hours: float = 6.0
 
 
 settings = Settings()
