@@ -2,6 +2,7 @@ from sqlalchemy.orm import Session
 
 from app.clients.onboarding_client import OnboardingClient
 from app.factories.score_strategy_factory import ScoreStrategyFactory
+from app.metrics import SCORE_EVALUATIONS
 from app.models import ScoreEvaluation
 from app.repositories import ScoreRepository
 
@@ -29,7 +30,7 @@ class ScoreService:
 
         decision = self._decide(result.score, result.faixa_risco)
 
-        return self.repo.save(
+        evaluation = self.repo.save(
             customer_id=customer_id,
             score=result.score,
             faixa_risco=result.faixa_risco,
@@ -37,6 +38,8 @@ class ScoreService:
             factors=result.factors,
             decision=decision,
         )
+        SCORE_EVALUATIONS.labels(strategy.name, result.faixa_risco).inc()
+        return evaluation
 
     def latest(self, customer_id: int) -> ScoreEvaluation:
         latest = self.repo.latest_for_customer(customer_id)

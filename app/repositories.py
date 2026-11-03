@@ -1,7 +1,7 @@
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
-from app.models import CreditDecision, ScoreEvaluation, ScoreFactor
+from app.models import CreditDecision, CreditDecisionEvent, ScoreEvaluation, ScoreFactor
 
 
 class ScoreRepository:
@@ -55,3 +55,17 @@ class ScoreRepository:
 
     def get(self, evaluation_id: int) -> ScoreEvaluation | None:
         return self.db.get(ScoreEvaluation, evaluation_id)
+
+
+class DecisionEventRepository:
+    def __init__(self, db: Session):
+        self.db = db
+
+    def list_for_customer(self, customer_id: int, limit: int = 50) -> list[CreditDecisionEvent]:
+        stmt = (
+            select(CreditDecisionEvent)
+            .where(CreditDecisionEvent.customer_id == customer_id)
+            .order_by(desc(CreditDecisionEvent.occurred_at), desc(CreditDecisionEvent.id))
+            .limit(limit)
+        )
+        return list(self.db.scalars(stmt))

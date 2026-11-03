@@ -49,3 +49,23 @@ class CreditDecision(Base):
     motivo: Mapped[str] = mapped_column(String(200), nullable=False)
 
     evaluation: Mapped[ScoreEvaluation] = relationship("ScoreEvaluation", back_populates="decision")
+
+
+class CreditDecisionEvent(Base):
+    """Decisão de crédito recebida do Transactions via evento `credit.decided`."""
+
+    __tablename__ = "credit_decision_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    event_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    credit_request_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    customer_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    motivo: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    valor_solicitado: Mapped[float] = mapped_column(Float, nullable=False)
+    prazo_meses: Mapped[int] = mapped_column(Integer, nullable=False)
+    score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    faixa_risco: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    taxa_juros: Mapped[float | None] = mapped_column(Float, nullable=True)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
