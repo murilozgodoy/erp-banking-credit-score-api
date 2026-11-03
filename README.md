@@ -97,7 +97,9 @@ validado com pydantic (confiança limitada a 0..1, insights inválidos descartad
 | `ANALYSIS_TIMEOUT_SECONDS` | `20` | Timeout da chamada (1 retry) |
 
 **Fallback:** qualquer falha (timeout, erro da API, recusa, saída inválida) devolve `None` e a análise segue só com
-as regras. Métrica `llm_analyses_total{result="ok|error|timeout|invalid"}`.
+as regras. Métricas: `llm_requests_total{result="ok|error|timeout|disabled"}` (saída inválida ou recusa
+contam como `error`; `disabled` é contado pelo orquestrador quando não há chave) e o histograma
+`llm_request_duration_seconds`, observado em toda chamada real à API.
 
 **Privacidade e segurança:** a chave nunca vai para log, exceção, `repr` ou resposta (o log registra só o tipo da
 falha, o resultado e a latência, sem conteúdo). As respostas e observações do cliente são enviadas à API da

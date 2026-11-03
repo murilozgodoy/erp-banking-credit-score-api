@@ -12,7 +12,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ValidationError, field_validator
 
-from app.metrics import LLM_ANALYSES
+from app.metrics import LLM_REQUEST_DURATION, LLM_REQUESTS
 
 logger = logging.getLogger(__name__)
 
@@ -189,19 +189,22 @@ class LlmAnalyzer:
         result = "error"
         try:
             analysis = self._call(payload, rules_result)
-            result = "ok" if analysis is not None else "invalid"
+            # saída inválida, vazia ou recusa conta como "error" no contrato do Grafana
+            result = "ok" if analysis is not None else "error"
             return analysis
         except Exception as exc:  # noqa: BLE001 — qualquer falha cai para as regras
             result = "timeout" if _is_timeout(exc) else "error"
             logger.warning("análise LLM falhou: %s", type(exc).__name__)
             return None
         finally:
-            LLM_ANALYSES.labels(result=result).inc()
+            elapsed = time.perf_counter() - started
+            LLM_REQUESTS.labels(result=result).inc()
+            LLM_REQUEST_DURATION.observe(elapsed)
             logger.info(
                 "análise LLM concluída result=%s model=%s latency_ms=%d",
                 result,
                 self.model,
-                int((time.perf_counter() - started) * 1000),
+                int(elapsed * 1000),
             )
 
     def _call(self, payload: dict, rules_result: dict | None) -> dict | None:

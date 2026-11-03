@@ -8,7 +8,7 @@ import pytest
 
 from app.analysis.llm import LlmAnalyzer, build_llm_analyzer, build_user_message
 from app.config import Settings
-from app.metrics import LLM_ANALYSES
+from app.metrics import LLM_REQUEST_DURATION, LLM_REQUESTS, LLM_RESULTS
 
 FAKE_KEY = "sk-ant-test-NAO-PODE-VAZAR-123"
 
@@ -58,17 +58,23 @@ def _analyzer(result=None, exc=None):
 
 
 def _count(result):
-    return LLM_ANALYSES.labels(result=result)._value.get()
+    return LLM_REQUESTS.labels(result=result)._value.get()
+
+
+def _observations():
+    return LLM_REQUEST_DURATION._sum.get(), sum(b.get() for b in LLM_REQUEST_DURATION._buckets)
 
 
 def test_success_path_returns_validated_dict():
     analyzer, client = _analyzer(_response(json.dumps(VALID)))
     before = _count("ok")
+    _, obs_before = _observations()
 
     result = analyzer.analyze(PAYLOAD, {"score": 742, "kpis": []})
 
     assert result == VALID
     assert _count("ok") == before + 1
+    assert _observations()[1] == obs_before + 1
     call = client.messages.calls[0]
     assert call["model"] == "claude-sonnet-5-5"
     assert call["output_config"]["format"]["type"] == "json_schema"
@@ -122,17 +128,21 @@ def test_negative_confianca_is_clamped_to_zero():
 )
 def test_invalid_output_returns_none(response):
     analyzer, _ = _analyzer(response)
-    before = _count("invalid")
+    before = _count("error")
+    _, obs_before = _observations()
     assert analyzer.analyze(PAYLOAD) is None
-    assert _count("invalid") == before + 1
+    assert _count("error") == before + 1
+    assert _observations()[1] == obs_before + 1
 
 
 def test_timeout_returns_none():
     exc = anthropic.APITimeoutError(request=httpx2.Request("POST", "https://api.anthropic.com/v1/messages"))
     analyzer, _ = _analyzer(exc=exc)
     before = _count("timeout")
+    _, obs_before = _observations()
     assert analyzer.analyze(PAYLOAD) is None
     assert _count("timeout") == before + 1
+    assert _observations()[1] == obs_before + 1
 
 
 def test_api_error_returns_none_and_never_leaks_key(caplog):
@@ -177,3 +187,14 @@ def test_user_message_without_rules_or_observacoes():
     msg = build_user_message({"segmento": "outro"}, None)
     assert "(sem observações)" in msg
     assert "<analise_por_regras>" not in msg
+
+
+def test_llm_metric_series_zero_initialised_and_disabled_not_counted_by_build():
+    from prometheus_client import REGISTRY
+
+    for result in ("ok", "error", "timeout", "disabled"):
+        assert result in LLM_RESULTS
+        assert REGISTRY.get_sample_value("llm_requests_total", {"result": result}) is not None
+    before = _count("disabled")
+    assert build_llm_analyzer(Settings(anthropic_api_key="")) is None
+    assert _count("disabled") == before  # o orquestrador é quem conta "disabled"
