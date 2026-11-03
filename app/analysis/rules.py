@@ -65,6 +65,13 @@ def parcela_price(valor: float, taxa_pct: float, meses: int) -> float:
 # --- Normalização das respostas --------------------------------------------------------------
 
 
+MAX_VALOR = 1e12  # acima disso a resposta é absurda (e pode estourar float nos cálculos)
+
+
+def _finito(value: float) -> float | None:
+    return value if math.isfinite(value) and abs(value) <= MAX_VALOR else None
+
+
 _MILHAR = re.compile(r"^-?[1-9]\d{0,2}(\.\d{3})+$")
 
 
@@ -72,7 +79,7 @@ def _num(value) -> float | None:
     if value is None or isinstance(value, bool):
         return None
     if isinstance(value, (int, float)):
-        return float(value) if math.isfinite(value) else None
+        return _finito(float(value))
     if isinstance(value, str):
         text = value.strip().replace("R$", "").replace("%", "").replace(" ", "")
         if not text:
@@ -87,7 +94,7 @@ def _num(value) -> float | None:
             parsed = float(text)
         except ValueError:
             return None
-        return parsed if math.isfinite(parsed) else None
+        return _finito(parsed)
     return None
 
 

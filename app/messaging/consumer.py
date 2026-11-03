@@ -16,6 +16,7 @@ from app.metrics import EVENTS_CONSUMED
 logger = logging.getLogger(__name__)
 
 EXCHANGE = "erp.events"
+PUBLISH_RETRY_DELAY = 5.0  # espera antes de devolver a mensagem à fila quando o publish falha
 
 
 @dataclass
@@ -73,7 +74,11 @@ def process_body(
 
 
 async def handle_message(
-    message, binding: Binding, session_factory: Callable[[], Session], publisher=None
+    message,
+    binding: Binding,
+    session_factory: Callable[[], Session],
+    publisher=None,
+    publish_retry_delay: float = PUBLISH_RETRY_DELAY,
 ) -> None:
     """Ack no sucesso; erro inesperado volta para a fila uma vez e depois é descartado.
 
@@ -91,6 +96,7 @@ async def handle_message(
     if publisher is not None:
         for routing_key, event in outbox:
             if not await publisher.publish(routing_key, event):
+                await asyncio.sleep(publish_retry_delay)  # evita loop quente de reentrega
                 await message.nack(requeue=True)
                 return
     await message.ack()
@@ -104,8 +110,10 @@ class EventConsumer:
         session_factory: Callable[[], Session],
         retry_delay: float = 5.0,
         publisher=None,
+        publish_retry_delay: float = PUBLISH_RETRY_DELAY,
     ):
         self.url = url
+        self.publish_retry_delay = publish_retry_delay
         self.publisher = publisher
         self.bindings = bindings
         self.session_factory = session_factory
@@ -155,6 +163,8 @@ class EventConsumer:
 
     def _callback(self, binding: Binding):
         async def callback(message) -> None:
-            await handle_message(message, binding, self.session_factory, self.publisher)
+            await handle_message(
+                message, binding, self.session_factory, self.publisher, self.publish_retry_delay
+            )
 
         return callback
