@@ -12,7 +12,7 @@ from app.logging_config import RequestIDMiddleware, configure_logging
 from app.database import SessionLocal, init_db
 from app.messaging.consumer import Binding, EventConsumer
 from app.messaging.handlers import handle_anamnesis_updated, handle_credit_decided
-from app.routers import health, scores
+from app.routers import analysis, health, scores
 
 BINDINGS = [
     Binding("credit-score.credit-decided", "credit.decided", handle_credit_decided),
@@ -41,9 +41,9 @@ def create_app() -> FastAPI:
     init_db()
     root_path = settings.root_path.rstrip("/")
     app = FastAPI(
-        title="ERP Banking - Credit Score API",
+        title="ErpIa - Credit Score API",
         version="1.0.0", docs_url=None, redoc_url=None, openapi_url=None,
-        description="Cálculo e histórico de score de crédito",
+        description="ErpIa: score de crédito, histórico e análise do negócio",
         root_path=root_path,
         servers=[{"url": root_path}] if root_path else None,
         lifespan=lifespan,
@@ -57,6 +57,7 @@ def create_app() -> FastAPI:
     )
     app.add_middleware(RequestIDMiddleware)  # mais externo: cobre CORS, auth e erros
     app.include_router(scores.router, dependencies=[Depends(require_auth)])
+    app.include_router(analysis.router, dependencies=[Depends(require_auth)])
     Instrumentator(excluded_handlers=["/metrics"]).instrument(app).expose(
         app, endpoint="/metrics", include_in_schema=False
     )
