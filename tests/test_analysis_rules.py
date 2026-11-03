@@ -214,6 +214,7 @@ def test_all_segments_have_benchmarks():
 @pytest.mark.parametrize("value,expected", [
     (10, 10.0), ("1.234,56", 1234.56), ("R$ 1500", 1500.0), ("12,5%", 12.5), ("", None),
     (True, None), (float("nan"), None), ([1], None), ("inf", None),
+    (1e308, None), ("1e13", None), (-2e12, None), (1e12, 1e12),
     ("182.000", 182000.0), ("R$ 1.234.567", 1234567.0), ("0.125", 0.125), ("12.5", 12.5),
 ])
 def test_num(value, expected):
