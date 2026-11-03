@@ -218,7 +218,9 @@ async def test_handle_message_publish_failure_requeues(session_factory, business
     publisher = MagicMock()
     publisher.publish = AsyncMock(return_value=False)
     msg = fake_message(json.dumps(business_payload).encode())
-    await handle_message(msg, SUBMITTED, session_factory, publisher)
+    with patch("app.messaging.consumer.asyncio.sleep", AsyncMock()) as sleep:
+        await handle_message(msg, SUBMITTED, session_factory, publisher, publish_retry_delay=7)
+    sleep.assert_awaited_once_with(7)  # espera antes do requeue: sem loop quente
     msg.ack.assert_not_awaited()
     msg.nack.assert_awaited_once_with(requeue=True)
 
@@ -341,3 +343,19 @@ def test_metric_series_zero_initialised():
     for rk in ("customer.onboarding_submitted", "customer.onboarding_reviewed"):
         assert f'events_consumed_total{{result="duplicate",routing_key="{rk}"}}' in text
     assert 'events_published_total{result="error",routing_key="business.analysis_completed"}' in text
+
+
+async def test_consumer_passes_publish_retry_delay(session_factory):
+    from app.messaging.consumer import PUBLISH_RETRY_DELAY, EventConsumer
+
+    assert EventConsumer("", [], session_factory).publish_retry_delay == PUBLISH_RETRY_DELAY == 5.0
+    consumer = EventConsumer("", [], session_factory, publish_retry_delay=0.1)
+    with patch("app.messaging.consumer.handle_message", AsyncMock()) as handle:
+        await consumer._callback(SUBMITTED)("msg")
+    assert handle.await_args.args[-1] == 0.1
+
+
+def test_absurd_answers_do_not_crash_the_consumer(db_session, business_payload):
+    business_payload["respostas"].update(faturamento_mensal=1e308, dividas_total=1e308)
+    out = handle_onboarding_submitted(db_session, business_payload)
+    assert out.result == "ok" and out.events[0][1]["status"] == "ANALISE_MANUAL"
