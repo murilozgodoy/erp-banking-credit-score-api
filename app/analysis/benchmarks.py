@@ -2,11 +2,7 @@
 
 Valores ilustrativos e estáveis: servem de régua para a leitura dos KPIs e para o score.
 """
-
-SEGMENTOS = (
-    "varejo", "alimentacao", "servicos", "saude", "tecnologia",
-    "industria", "agro", "construcao", "outro",
-)
+from app.metrics import SEGMENTOS  # noqa: F401  (fonte única da lista de segmentos)
 
 SEGMENTO_NOMES = {
     "varejo": "Varejo e e-commerce",

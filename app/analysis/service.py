@@ -11,6 +11,7 @@ from typing import Protocol
 
 from app.analysis.base import AREAS, SEVERIDADES, BusinessAnalyzer
 from app.analysis.rules import REGRAS_CRITICAS, RuleBasedAnalyzer
+from app.metrics import BUSINESS_ANALYSES, LLM_REQUESTS, SEGMENTOS
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +108,7 @@ def _normalize_verdict(verdict) -> dict | None:
 
 def _call_llm(llm, payload: dict, rules_result: dict) -> dict | None:
     if llm is None:
+        LLM_REQUESTS.labels(result="disabled").inc()
         return None
     try:
         verdict = llm.analyze(payload, rules_result)
@@ -155,6 +157,10 @@ def run_analysis(
         if verdict["confianca"] < CONFIANCA_MINIMA:
             motivos.append("LLM_BAIXA_CONFIANCA")
     status = STATUS_ANALISE_MANUAL if motivos else STATUS_APROVADO
+    segmento = str(payload.get("segmento") or "").lower()
+    BUSINESS_ANALYSES.labels(
+        status=status, gerado_por=gerado_por, segmento=segmento if segmento in SEGMENTOS else "outro"
+    ).inc()
 
     body = {
         "customer_id": payload.get("customer_id"),

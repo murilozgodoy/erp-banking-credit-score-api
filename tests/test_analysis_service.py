@@ -140,3 +140,36 @@ def test_descricao_motivo():
     assert "3x" in descricao_motivo("DIVIDA_EXCESSIVA")
     assert "outro" in descricao_motivo("SEGMENTO_OUTRO")
     assert descricao_motivo("X") == "X"
+
+
+def _metric(counter, **labels):
+    return counter.labels(**labels)._value.get()
+
+
+def test_metrics_business_analyses_and_llm_disabled(business_payload):
+    from app.metrics import BUSINESS_ANALYSES, LLM_REQUESTS
+
+    before = _metric(BUSINESS_ANALYSES, status="APROVADO", gerado_por="regras", segmento="varejo")
+    disabled = _metric(LLM_REQUESTS, result="disabled")
+    run_analysis(business_payload)
+    assert _metric(BUSINESS_ANALYSES, status="APROVADO", gerado_por="regras", segmento="varejo") == before + 1
+    assert _metric(LLM_REQUESTS, result="disabled") == disabled + 1
+
+    llm_before = _metric(BUSINESS_ANALYSES, status="APROVADO", gerado_por="llm+regras", segmento="varejo")
+    run_analysis(business_payload, llm=FakeLlm(verdict()))
+    assert _metric(LLM_REQUESTS, result="disabled") == disabled + 1  # com LLM não conta disabled
+    assert _metric(BUSINESS_ANALYSES, status="APROVADO", gerado_por="llm+regras", segmento="varejo") == llm_before + 1
+
+    unknown = copy.deepcopy(business_payload)
+    unknown["segmento"] = "marte"
+    outro = _metric(BUSINESS_ANALYSES, status="APROVADO", gerado_por="regras", segmento="outro")
+    run_analysis(unknown)
+    assert _metric(BUSINESS_ANALYSES, status="APROVADO", gerado_por="regras", segmento="outro") == outro + 1
+
+
+def test_metric_series_zero_initialised():
+    from prometheus_client import generate_latest
+
+    text = generate_latest().decode()
+    assert 'business_analyses_total{gerado_por="llm+regras",segmento="construcao",status="ANALISE_MANUAL"}' in text
+    assert 'llm_requests_total{result="disabled"}' in text
