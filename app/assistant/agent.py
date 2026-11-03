@@ -410,10 +410,19 @@ def _tool_result(tool_use_id: str, content: str, is_error: bool) -> dict:
 
 
 def _api_messages(history: list[dict]) -> list[dict]:
-    """Histórico no formato da API; a conversa precisa começar pelo usuário."""
-    messages = [{"role": m["role"], "content": m["content"]} for m in history]
-    while messages and messages[0]["role"] != "user":
-        messages.pop(0)
+    """Histórico no formato da API: começa pelo usuário e alterna os papéis.
+
+    Turnos seguidos do mesmo papel (ex.: o front reenvia a pergunta que deu 503 junto com a nova) viram um só, porque
+    a API recusa com 400 papéis repetidos em sequência.
+    """
+    messages: list[dict] = []
+    for m in history:
+        if not messages and m["role"] != "user":
+            continue
+        if messages and messages[-1]["role"] == m["role"]:
+            messages[-1]["content"] = f"{messages[-1]['content']}\n\n{m['content']}"
+        else:
+            messages.append({"role": m["role"], "content": m["content"]})
     return messages
 
 

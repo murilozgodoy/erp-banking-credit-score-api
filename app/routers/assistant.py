@@ -12,7 +12,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy.orm import Session
 
 from app.analysis.repository import latest_analysis_body
@@ -37,6 +37,13 @@ MAX_CONTENT_CHARS = 2000
 class ChatMessage(BaseModel):
     role: Literal["user", "assistant"]
     content: str = Field(min_length=1, max_length=MAX_CONTENT_CHARS)
+
+    @field_validator("content")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        if not value.strip():  # a API recusa texto só com espaços (400), o que viraria 503
+            raise ValueError("mensagem vazia")
+        return value
 
 
 class AssistantRequest(BaseModel):
