@@ -47,3 +47,22 @@ class CustomerFinancialData(BaseModel):
     patrimonio: float = 0.0
     dividas_ativas: float = 0.0
     comprometimento_renda: float = 0.0
+
+
+class DecisionEventOut(BaseModel):
+    """Decisão de crédito registrada via evento `credit.decided` (contrato seção 2.4)."""
+
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    event_id: str
+    credit_request_id: int
+    customer_id: int
+    status: str
+    motivo: str | None = None
+    valor_solicitado: float
+    prazo_meses: int
+    score: float | None = None
+    faixa_risco: str | None = None
+    taxa_juros: float | None = None
+    occurred_at: datetime
+    received_at: datetime

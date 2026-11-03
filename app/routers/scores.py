@@ -10,7 +10,8 @@ from app.clients.onboarding_client import (
 )
 from app.database import get_db
 from app.factories.score_strategy_factory import ScoreStrategyFactory, UnknownStrategyError
-from app.schemas import EvaluationOut, EvaluationRequest, StrategyOut
+from app.repositories import DecisionEventRepository
+from app.schemas import DecisionEventOut, EvaluationOut, EvaluationRequest, StrategyOut
 from app.services import ScoreNotFoundError, ScoreService
 
 router = APIRouter(prefix="/scores", tags=["scores"])
@@ -75,3 +76,17 @@ def list_evaluations(
 def list_strategies():
     """Strategies registradas na ScoreStrategyFactory."""
     return ScoreStrategyFactory.describe()
+
+
+@router.get(
+    "/decisions",
+    response_model=list[DecisionEventOut],
+    dependencies=[Depends(require_permission("read:scores"))],
+)
+def list_decisions(
+    customer_id: int = Query(..., gt=0),
+    limit: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    """Decisões de crédito recebidas via evento `credit.decided`, da mais recente para a mais antiga."""
+    return DecisionEventRepository(db).list_for_customer(customer_id, limit)

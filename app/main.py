@@ -1,28 +1,60 @@
+from contextlib import asynccontextmanager
+
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.openapi.docs import get_swagger_ui_html, get_redoc_html
+from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
+from prometheus_fastapi_instrumentator import Instrumentator
 
+from app import models  # noqa: F401  (registra as tabelas no metadata)
 from app.auth import require_auth
 from app.config import settings
-
-from app.database import Base, engine
+from app.database import SessionLocal, init_db
+from app.messaging.consumer import Binding, EventConsumer
+from app.messaging.handlers import handle_credit_decided
 from app.routers import health, scores
+
+BINDINGS = [
+    Binding("credit-score.credit-decided", "credit.decided", handle_credit_decided),
+]
+
+
+def build_consumer() -> EventConsumer:
+    return EventConsumer(settings.rabbitmq_url, BINDINGS, SessionLocal)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    consumer = build_consumer()
+    consumer.start()
+    try:
+        yield
+    finally:
+        await consumer.stop()
 
 
 def create_app() -> FastAPI:
-    Base.metadata.create_all(bind=engine)
+    init_db()
+    root_path = settings.root_path.rstrip("/")
     app = FastAPI(
         title="ERP Banking - Credit Score API",
         version="1.0.0", docs_url=None, redoc_url=None, openapi_url=None,
         description="Cálculo e histórico de score de crédito",
+        root_path=root_path,
+        servers=[{"url": root_path}] if root_path else None,
+        lifespan=lifespan,
     )
     app.include_router(health.router)
     app.add_middleware(
         CORSMiddleware, allow_origins=settings.cors_origins,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type"],
+        allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
     )
     app.include_router(scores.router, dependencies=[Depends(require_auth)])
+    Instrumentator(excluded_handlers=["/metrics"]).instrument(app).expose(
+        app, endpoint="/metrics", include_in_schema=False
+    )
+
+    openapi_url = f"{root_path}/openapi.json"
 
     @app.get("/openapi.json", dependencies=[Depends(require_auth)], include_in_schema=False)
     def openapi():
@@ -30,11 +62,11 @@ def create_app() -> FastAPI:
 
     @app.get("/docs", dependencies=[Depends(require_auth)], include_in_schema=False)
     def docs():
-        return get_swagger_ui_html(openapi_url="/openapi.json", title=app.title)
+        return get_swagger_ui_html(openapi_url=openapi_url, title=app.title)
 
     @app.get("/redoc", dependencies=[Depends(require_auth)], include_in_schema=False)
     def redoc():
-        return get_redoc_html(openapi_url="/openapi.json", title=app.title)
+        return get_redoc_html(openapi_url=openapi_url, title=app.title)
 
     return app
 
