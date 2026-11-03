@@ -21,6 +21,11 @@ class BusinessAnalysisRepository:
         )
         return self.db.scalars(stmt).first()
 
+    def by_event(self, event_id: str) -> BusinessAnalysis | None:
+        return self.db.scalars(
+            select(BusinessAnalysis).where(BusinessAnalysis.source_event_id == event_id)
+        ).first()
+
     def exists_event(self, event_id: str) -> bool:
         stmt = select(BusinessAnalysis.id).where(BusinessAnalysis.source_event_id == event_id)
         return self.db.scalar(stmt) is not None

@@ -20,18 +20,25 @@ EXCHANGE_NAME = "erp.events"
 ANALYSIS_COMPLETED = "business.analysis_completed"
 
 
-def envelope(event_type: str, **payload: Any) -> dict[str, Any]:
+def envelope(event_type: str, event_id: str | None = None, **payload: Any) -> dict[str, Any]:
     return {
-        "event_id": str(uuid.uuid4()),
+        "event_id": event_id or str(uuid.uuid4()),
         "event_type": event_type,
         "occurred_at": datetime.now(timezone.utc).isoformat(),
         **payload,
     }
 
 
-def analysis_completed_event(customer_id: int, status: str, score, faixa_risco, gerado_por: str) -> dict:
+def analysis_completed_event(
+    customer_id: int, status: str, score, faixa_risco, gerado_por: str, source_event_id: str | None = None
+) -> dict:
+    """`event_id` derivado do evento de origem: a republicação após falha tem o mesmo id (idempotente)."""
+    event_id = (
+        str(uuid.uuid5(uuid.NAMESPACE_URL, f"{ANALYSIS_COMPLETED}:{source_event_id}")) if source_event_id else None
+    )
     return envelope(
         ANALYSIS_COMPLETED,
+        event_id=event_id,
         customer_id=customer_id,
         status=status,
         score=score,
@@ -85,10 +92,10 @@ class EventPublisher:
             except Exception:
                 logger.exception("falha ao fechar a conexão do publisher")
 
-    async def publish(self, routing_key: str, payload: dict[str, Any]) -> None:
-        """Publica um evento JSON persistente. Nunca levanta exceção."""
+    async def publish(self, routing_key: str, payload: dict[str, Any]) -> bool:
+        """Publica um evento JSON persistente. Nunca levanta exceção; `False` = não publicou."""
         if not self.enabled:
-            return
+            return True
         try:
             await self.connect()
             if self._exchange is None:
@@ -104,5 +111,6 @@ class EventPublisher:
         except Exception:
             logger.exception("falha ao publicar evento %s", routing_key)
             EVENTS_PUBLISHED.labels(routing_key=routing_key, result="error").inc()
-            return
+            return False
         EVENTS_PUBLISHED.labels(routing_key=routing_key, result="ok").inc()
+        return True
