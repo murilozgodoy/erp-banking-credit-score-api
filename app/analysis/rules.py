@@ -20,12 +20,14 @@ AJUSTE_PRODUTO = {
     "ALAVANCAGEM": 0.3,
     "CONSOLIDACAO_DIVIDAS": 0.0,
 }
+# Prazos máximos iguais aos do simulador do Transactions (CreditProduct): a oportunidade sugerida aqui
+# vira link para /app/credito, e um prazo maior que o do simulador seria recusado lá.
 PRAZO_MAX = {
     "ANTECIPACAO_RECEBIVEIS": 6,
     "CAPITAL_DE_GIRO": 24,
     "ALAVANCAGEM": 36,
-    "FINANCIAMENTO_ESTOQUE": 12,
-    "CONSOLIDACAO_DIVIDAS": 48,
+    "FINANCIAMENTO_ESTOQUE": 18,
+    "CONSOLIDACAO_DIVIDAS": 24,
 }
 LIMITE_ANTECIPACAO = 0.80  # dos recebíveis de cartão previstos
 LIMITE_ESTOQUE = 0.60  # do valor de estoque
