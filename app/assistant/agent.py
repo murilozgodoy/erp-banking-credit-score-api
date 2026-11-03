@@ -173,12 +173,17 @@ REFUSAL_TEXT = (
 
 
 class AssistantUnavailable(Exception):
-    """Falha que vira 503 ASSISTENTE_INDISPONIVEL. `kind` é o rótulo da métrica (`error` ou `timeout`)."""
+    """Falha que vira 503 ASSISTENTE_INDISPONIVEL. `kind` é o rótulo da métrica (`error` ou `timeout`).
 
-    def __init__(self, kind: str, tool_calls: int = 0):
+    Leva também os tokens já gastos nas chamadas que deram certo, para a auditoria do histórico.
+    """
+
+    def __init__(self, kind: str, tool_calls: int = 0, input_tokens: int = 0, output_tokens: int = 0):
         super().__init__(kind)
         self.kind = kind
         self.tool_calls = tool_calls
+        self.input_tokens = input_tokens
+        self.output_tokens = output_tokens
 
 
 @dataclass
@@ -186,12 +191,31 @@ class AssistantResult:
     reply: dict
     result: str = "ok"
     tool_calls: int = 0
+    refused: bool = False
+    model: str | None = None  # o modelo que de fato respondeu (o fallback do servidor pode trocar)
+    input_tokens: int = 0
+    output_tokens: int = 0
 
 
 @dataclass
 class _Turn:
     tool_calls: int = 0
     fontes: list[tuple[str, str]] = field(default_factory=list)  # (tipo, rótulo padrão), em ordem de uso
+    input_tokens: int = 0
+    output_tokens: int = 0
+    model: str | None = None
+
+    def add_usage(self, response) -> None:
+        usage = getattr(response, "usage", None)
+        self.input_tokens += _int(getattr(usage, "input_tokens", 0))
+        self.output_tokens += _int(getattr(usage, "output_tokens", 0))
+        model = getattr(response, "model", None)
+        if isinstance(model, str) and model:
+            self.model = model
+
+
+def _int(value: Any) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else 0
 
 
 class _Reply(BaseModel):
@@ -311,18 +335,30 @@ class AssistantService:
     # --- loop -----------------------------------------------------------------------------
 
     def answer(self, history: list[dict], rota: str | None, tools: ToolExecutor) -> AssistantResult:
+        turn = _Turn()
+        try:
+            result = self._loop(history, rota, tools, turn)
+        except AssistantUnavailable as exc:
+            exc.tool_calls = turn.tool_calls
+            exc.input_tokens, exc.output_tokens = turn.input_tokens, turn.output_tokens
+            raise
+        result.model = turn.model or self.model
+        result.input_tokens, result.output_tokens = turn.input_tokens, turn.output_tokens
+        return result
+
+    def _loop(self, history: list[dict], rota: str | None, tools: ToolExecutor, turn: _Turn) -> AssistantResult:
         rota = normalize_rota(rota)
         deadline = self.clock() + self.deadline_seconds
         messages = _api_messages(history)
-        turn = _Turn()
         forced = False
         for _ in range(self.max_tool_calls + 2):
             response = self._create(messages, rota, self._remaining(deadline, turn), forced, turn)
+            turn.add_usage(response)
             stop_reason = getattr(response, "stop_reason", None)
             content = list(getattr(response, "content", None) or [])
             if stop_reason == "refusal":
                 logger.warning("assistente: recusa do modelo")
-                return AssistantResult(self._refusal(rota), result="error", tool_calls=turn.tool_calls)
+                return AssistantResult(self._refusal(rota), result="error", tool_calls=turn.tool_calls, refused=True)
             if stop_reason == "max_tokens":
                 logger.warning("assistente: resposta cortada por max_tokens")
                 raise AssistantUnavailable("error", turn.tool_calls)

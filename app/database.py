@@ -35,6 +35,11 @@ engine = create_engine(settings.database_url, **_engine_kwargs(settings.database
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
+def get_session_factory():
+    """Fábrica de sessões curtas (o Assistente não segura conexão durante a chamada ao LLM)."""
+    return SessionLocal
+
+
 def get_db():
     db = SessionLocal()
     try:

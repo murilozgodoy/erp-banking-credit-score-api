@@ -192,7 +192,7 @@ def test_happy_path_with_two_tool_calls(client, use):
 
     assert r.status_code == 200
     body = r.json()
-    assert set(body) == {"resposta", "sugestoes", "fontes", "acoes"}
+    assert set(body) == {"resposta", "sugestoes", "fontes", "acoes", "conversation_id", "message_id"}
     assert body["resposta"].startswith("Você tem **R$ 120.000,00**")
     assert body["fontes"] == [
         {"tipo": "overview", "label": "Visão geral"},
@@ -325,7 +325,7 @@ def test_deadline_45s_with_fake_clock(client, use):
     r = ask(client)
 
     assert r.status_code == 503
-    assert r.json() == {"error": "ASSISTENTE_INDISPONIVEL"}
+    assert r.json() == {"error": "ASSISTENTE_INDISPONIVEL", "conversation_id": r.json()["conversation_id"]}
     assert [c["timeout"] for c in calls.calls] == [45.0, 15.0]  # o tempo restante vira o timeout da chamada
     assert route.call_count == 1  # depois de 60 s não chama mais ferramenta
     assert counter(ASSISTANT_MESSAGES, result="timeout") == before + 1
@@ -358,7 +358,7 @@ def test_anthropic_timeout_and_errors_are_503(client, use):
     request = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
     use([anthropic.APITimeoutError(request=request)])
     before = counter(ASSISTANT_MESSAGES, result="timeout")
-    assert ask(client).json() == {"error": "ASSISTENTE_INDISPONIVEL"}
+    assert ask(client).json()["error"] == "ASSISTENTE_INDISPONIVEL"
     assert counter(ASSISTANT_MESSAGES, result="timeout") == before + 1
 
     use([anthropic.InternalServerError("boom", response=httpx2.Response(500, request=request), body=None)])
@@ -418,7 +418,7 @@ def test_invalid_final_json_is_503(client, use):
     use([message(text("isto não é JSON {"))])
     before = counter(ASSISTANT_MESSAGES, result="error")
     r = ask(client)
-    assert r.status_code == 503 and r.json() == {"error": "ASSISTENTE_INDISPONIVEL"}
+    assert r.status_code == 503 and r.json()["error"] == "ASSISTENTE_INDISPONIVEL"
     assert counter(ASSISTANT_MESSAGES, result="error") == before + 1
 
     use([message(text({"resposta": "   ", "sugestoes": [], "fontes": [], "acoes": []}))])

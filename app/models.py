@@ -1,6 +1,20 @@
+import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    Uuid,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -101,4 +115,48 @@ class BusinessAnalysis(Base):
     source_event_id: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
     reviewer: Mapped[str | None] = mapped_column(String(255), nullable=True)
     review_comment: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class AssistantConversation(Base):
+    """Conversa do Assistente ErpIa (seção 10 do PORTAL_CLIENTE.md). Dono = `auth0_sub` do token."""
+
+    __tablename__ = "assistant_conversations"
+    __table_args__ = (Index("ix_assistant_conversations_sub_updated", "auth0_sub", "updated_at"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    customer_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    auth0_sub: Mapped[str] = mapped_column(String(255), nullable=False)
+    titulo: Mapped[str] = mapped_column(String(80), nullable=False)
+    rota_inicial: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+
+
+class AssistantMessage(Base):
+    """Mensagem de uma conversa: a pergunta do usuário ou só a resposta final do assistente.
+
+    Nunca guarda token, cabeçalhos nem a saída das ferramentas. Linha do assistente com `result="error"` e
+    `content` vazio é só auditoria (tokens e latência de uma resposta que deu 503) e não aparece na API.
+    """
+
+    __tablename__ = "assistant_messages"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True
+    )
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("assistant_conversations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    role: Mapped[str] = mapped_column(String(10), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    fontes: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    acoes: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    sugestoes: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    model: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    result: Mapped[str | None] = mapped_column(String(10), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

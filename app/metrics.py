@@ -39,7 +39,7 @@ BUSINESS_ANALYSES = Counter(
 
 ASSISTANT_MESSAGES = Counter(
     "assistant_messages_total",
-    "Mensagens ao Assistente ErpIa por resultado (disabled = sem ANTHROPIC_API_KEY, limited = 429, pendente = 409)",
+    "Mensagens ao Assistente ErpIa por resultado (disabled = sem ANTHROPIC_API_KEY, limited = 429, pendente = 409, not_found = conversa 404)",
     ["result"],
 )
 
@@ -53,6 +53,17 @@ ASSISTANT_REQUEST_DURATION = Histogram(
     "assistant_request_duration_seconds",
     "Duração das respostas do Assistente ErpIa que chegaram a chamar o LLM",
     buckets=(1, 2, 5, 10, 15, 20, 30, 45, 60),
+)
+
+ASSISTANT_CONVERSATIONS = Counter(
+    "assistant_conversations_total",
+    "Conversas do Assistente ErpIa criadas",
+)
+
+ASSISTANT_TOKENS = Counter(
+    "assistant_tokens_total",
+    "Tokens do Assistente ErpIa somados nas chamadas à API (input exclui os lidos/gravados do cache)",
+    ["direction"],
 )
 
 CONSUMED_ROUTING_KEYS = (
@@ -69,7 +80,8 @@ FAIXAS_RISCO = ("BAIXO", "MEDIO", "ALTO", "MUITO_ALTO")
 LLM_RESULTS = ("ok", "error", "timeout", "disabled")
 ANALYSIS_STATUSES = ("APROVADO", "ANALISE_MANUAL")
 ANALYSIS_GERADO_POR = ("regras", "llm+regras")
-ASSISTANT_RESULTS = ("ok", "error", "timeout", "limited", "disabled", "pendente")
+ASSISTANT_RESULTS = ("ok", "error", "timeout", "limited", "disabled", "pendente", "not_found")
+TOKEN_DIRECTIONS = ("input", "output")
 ASSISTANT_TOOLS = (
     "consultar_visao_geral",
     "consultar_vendas",
@@ -107,6 +119,8 @@ def init_metrics() -> None:
         ASSISTANT_MESSAGES.labels(result=result)
     for tool in ASSISTANT_TOOLS:
         ASSISTANT_TOOL_CALLS.labels(tool=tool)
+    for direction in TOKEN_DIRECTIONS:
+        ASSISTANT_TOKENS.labels(direction=direction)
     for status in ANALYSIS_STATUSES:
         for gerado_por in ANALYSIS_GERADO_POR:
             for segmento in SEGMENTOS:

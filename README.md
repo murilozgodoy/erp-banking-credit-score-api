@@ -63,6 +63,9 @@ Cobertura mínima: **80%**.
 | `ROOT_PATH`          | vazio                         | Prefixo no API Gateway (`/score`), para o `/docs` funcionar |
 | `RABBITMQ_URL`       | vazio                         | `amqp://erp:erp@rabbitmq:5672/`; vazio = consumer desligado |
 | `TRANSACTIONS_API_URL` | `http://transactions-api:8080` | Transactions API, lida pelas ferramentas do Assistente ErpIa |
+| `ASSISTANT_RETENTION_DAYS` | `30`                     | Dias até a conversa apagada (soft delete) do Assistente sumir de vez |
+| `ASSISTANT_PURGE_INTERVAL_HOURS` | `6`               | Intervalo do job de purga do histórico (roda também no startup) |
+| `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` / `DB_POOL_RECYCLE` | `5` / `5` / `1800` | Pool do Postgres (Aiven free: pool pequeno, ex. 3/2) |
 | `LOG_LEVEL`          | `INFO`                        | Nível dos logs JSON                                         |
 
 ## Endpoints
@@ -79,6 +82,10 @@ Cobertura mínima: **80%**.
 | GET    | `/scores/analyses/{customer_id}`      | `read:scores`  | Versão mais recente da análise do negócio do cliente (404 se não houver) |
 | GET    | `/me/analysis`                        | `read:self`    | Análise do negócio do cliente dono do token (ver abaixo)           |
 | POST   | `/me/assistant/messages`              | `read:self`    | Assistente ErpIa: chat com IA sobre a empresa do cliente (ver abaixo) |
+| GET    | `/me/assistant/conversations?limit=&offset=` | `read:self` | Conversas do usuário, mais recente primeiro                  |
+| GET    | `/me/assistant/conversations/{id}`    | `read:self`    | Mensagens de uma conversa (404 se não for do usuário ou estiver apagada) |
+| DELETE | `/me/assistant/conversations/{id}`    | `read:self`    | Apaga uma conversa (soft delete; 204)                              |
+| DELETE | `/me/assistant/conversations`         | `read:self`    | Apaga todo o histórico do usuário (LGPD; 204)                      |
 | GET    | `/metrics`                            | pública        | Métricas Prometheus (não exposta pelo gateway)                     |
 
 ### Strategies disponíveis
@@ -221,6 +228,39 @@ data de hoje, tela atual e valores em BRL no formato brasileiro.
 `assistant_tool_calls_total{tool=<ferramenta>}` (séries zeradas no startup) e o histograma
 `assistant_request_duration_seconds`. **Logs:** só resultado, latência, número de ferramentas e modelo; nunca o
 conteúdo das mensagens, os dados das ferramentas ou a chave. Os testes usam um client Anthropic falso e `respx`.
+
+### Histórico do Assistente (seção 10 do `PORTAL_CLIENTE.md`)
+
+As conversas ficam no banco (`app/assistant/history.py`), nas tabelas `assistant_conversations` (`id` uuid,
+`customer_id`, `auth0_sub`, `titulo`, `rota_inicial`, `created_at`, `updated_at`, `deleted_at`; índice
+(`auth0_sub`, `updated_at`)) e `assistant_messages` (`id`, `conversation_id`, `role`, `content`, `fontes`, `acoes`,
+`sugestoes` em JSON, `model`, `input_tokens`, `output_tokens`, `latency_ms`, `result` ok|refused|error,
+`created_at`). Saem do `create_all` do startup, sem migração. O dono é sempre o `sub` do token; o `customer_id` vem
+do Onboarding `GET /me`.
+
+- **`POST /me/assistant/messages`** aceita `conversation_id`. Sem ele cria a conversa (título = 1ª pergunta, até 80
+  caracteres cortados na palavra com "…"; `rota_inicial` = `rota`) e, se o corpo trouxer mensagens anteriores (front
+  antigo), elas viram o histórico da conversa nova. Com ele, a conversa precisa ser do `sub` e não estar apagada
+  (senão 404 `{"error":"CONVERSA_NAO_ENCONTRADA"}`), e só a última mensagem do corpo conta: o histórico enviado ao
+  modelo são as 20 últimas mensagens do banco mais a pergunta nova. A resposta ganha `conversation_id` e
+  `message_id`; o 503 depois que a pergunta foi gravada traz também `conversation_id`. 429 e 409 são verificados
+  antes de criar qualquer coisa.
+- **Pool pequeno:** nenhuma sessão fica aberta durante o LLM. Transação 1: valida/cria a conversa, grava a pergunta
+  e lê o histórico. Depois o loop com o Claude (`consultar_analise` abre a própria sessão curta). Transação 2: grava
+  a resposta e atualiza `updated_at`.
+- **O que é salvo:** a pergunta e só a resposta final (`resposta`, `fontes`, `acoes`, `sugestoes`), o modelo que
+  respondeu, os tokens somados nas chamadas do loop (`usage.input_tokens`/`output_tokens`), a latência do loop e o
+  resultado. Nunca o token de acesso, cabeçalhos ou a saída das ferramentas. Uma falha (503) grava uma linha do
+  assistente com `result="error"` e `content` vazio só para auditoria de tokens e latência; ela não aparece na API
+  nem no histórico enviado ao modelo.
+- **Listar/ler/apagar:** `GET /me/assistant/conversations?limit=20&offset=0` (limit até 100) devolve
+  `[{id, titulo, updated_at, mensagens}]`; `GET /me/assistant/conversations/{id}` devolve
+  `{id, titulo, mensagens: [{id, role, content, fontes, acoes, sugestoes, created_at}]}`; os `DELETE` fazem soft
+  delete (204).
+- **Retenção:** um job no lifespan (startup + a cada `ASSISTANT_PURGE_INTERVAL_HOURS`, numa thread com sessão
+  própria) apaga de vez, mensagens primeiro, as conversas apagadas há mais de `ASSISTANT_RETENTION_DAYS` dias.
+- **Métricas:** `assistant_conversations_total` e `assistant_tokens_total{direction="input|output"}` (zeradas no
+  startup); `assistant_messages_total` ganhou `result="not_found"`.
 
 ## Autenticação e autorização (Auth0)
 
