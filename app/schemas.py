@@ -66,3 +66,15 @@ class DecisionEventOut(BaseModel):
     taxa_juros: float | None = None
     occurred_at: datetime
     received_at: datetime
+
+
+class ScoreStatusOut(BaseModel):
+    """Situação do score: desatualizado quando a anamnese mudou depois da última avaliação."""
+
+    model_config = ConfigDict(from_attributes=True)
+    customer_id: int
+    desatualizado: bool = False
+    motivo: str | None = None
+    dividas_ativas: float | None = None
+    comprometimento_renda: float | None = None
+    updated_at: datetime | None = None

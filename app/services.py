@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from app.clients.onboarding_client import OnboardingClient
 from app.factories.score_strategy_factory import ScoreStrategyFactory
 from app.metrics import SCORE_EVALUATIONS
-from app.models import ScoreEvaluation
+from app.models import CustomerScoreStatus, ScoreEvaluation
 from app.repositories import ScoreRepository
 
 
@@ -39,6 +39,7 @@ class ScoreService:
             decision=decision,
         )
         SCORE_EVALUATIONS.labels(strategy.name, result.faixa_risco).inc()
+        self._mark_fresh(customer_id)
         return evaluation
 
     def latest(self, customer_id: int) -> ScoreEvaluation:
@@ -57,3 +58,22 @@ class ScoreService:
         if faixa_risco == "MEDIO":
             return ("REVISAO", "Score exige revisão manual")
         return ("NEGADO", f"Faixa de risco {faixa_risco}")
+
+    def status(self, customer_id: int) -> dict:
+        row = self.db.get(CustomerScoreStatus, customer_id)
+        if row is None:
+            return {"customer_id": customer_id, "desatualizado": False}
+        return {
+            "customer_id": customer_id,
+            "desatualizado": row.desatualizado,
+            "motivo": "Anamnese atualizada após a última avaliação" if row.desatualizado else None,
+            "dividas_ativas": row.dividas_ativas,
+            "comprometimento_renda": row.comprometimento_renda,
+            "updated_at": row.updated_at,
+        }
+
+    def _mark_fresh(self, customer_id: int) -> None:
+        row = self.db.get(CustomerScoreStatus, customer_id)
+        if row is not None and row.desatualizado:
+            row.desatualizado = False
+            self.db.commit()

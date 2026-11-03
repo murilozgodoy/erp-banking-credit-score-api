@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -69,3 +69,16 @@ class CreditDecisionEvent(Base):
     taxa_juros: Mapped[float | None] = mapped_column(Float, nullable=True)
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class CustomerScoreStatus(Base):
+    """Marca o score do cliente como desatualizado quando a anamnese muda no Onboarding."""
+
+    __tablename__ = "customer_score_status"
+
+    customer_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    desatualizado: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    dividas_ativas: Mapped[float | None] = mapped_column(Float, nullable=True)
+    comprometimento_renda: Mapped[float | None] = mapped_column(Float, nullable=True)
+    last_event_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
