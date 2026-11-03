@@ -1,6 +1,6 @@
-# ERP Banking - Credit Score API
+# ErpIa - Credit Score API
 
-Serviço de cálculo e histórico de score de crédito. Usa padrões **Strategy** (algoritmos de score) e **Factory** (seleção de strategy).
+Serviço do **ErpIa** para cálculo e histórico de score de crédito e para a **análise do negócio** do onboarding PJ. Usa padrões **Strategy** (algoritmos de score) e **Factory** (seleção de strategy).
 Documentação central do projeto em [erp-banking-front/docs](https://github.com/murilozgodoy/erp-banking-front/tree/main/docs).
 
 ## Requisitos
@@ -75,12 +75,66 @@ Cobertura mínima: **80%**.
 | GET    | `/scores/strategies`                  | `read:scores`  | Strategies registradas na `ScoreStrategyFactory`                   |
 | GET    | `/scores/decisions?customer_id=`      | `read:scores`  | Decisões de crédito recebidas via evento `credit.decided` (mais recente primeiro) |
 | GET    | `/scores/customers/{id}/status`       | `read:scores`  | `desatualizado: true` se a anamnese mudou depois da última avaliação |
+| GET    | `/scores/analyses/{customer_id}`      | `read:scores`  | Versão mais recente da análise do negócio do cliente (404 se não houver) |
+| GET    | `/me/analysis`                        | `read:self`    | Análise do negócio do cliente dono do token (ver abaixo)           |
 | GET    | `/metrics`                            | pública        | Métricas Prometheus (não exposta pelo gateway)                     |
 
 ### Strategies disponíveis
 
 - `weighted` (padrão): renda 40% + patrimônio 30% + comprometimento 30%
 - `simple`: regras binárias de renda/dívidas/comprometimento
+
+## Análise do negócio (onboarding PJ)
+
+Contrato: `PORTAL_CLIENTE.md`, seção 4. Pacote `app/analysis/`:
+
+- **Strategy `BusinessAnalyzer`** → `RuleBasedAnalyzer` (sempre roda, determinístico). A partir das respostas do
+  template calcula os KPIs (`receita_mensal`, `margem_bruta_pct`, `ticket_medio`, `prazo_medio_recebimento_dias`,
+  `prazo_medio_pagamento_dias`, `ciclo_caixa_dias`, `endividamento_sobre_receita`, `comprometimento_parcelas_pct` e,
+  com estoque, `cobertura_estoque_dias`), cada um com `benchmark_segmento` da tabela em `benchmarks.py` e uma
+  `leitura`. Resposta ausente → `valor: null`, `leitura: "não informado"`, e a regra não pontua.
+- **Score do negócio (0–1000):** base 500 + pontos por receita vs. segmento, margem, endividamento, parcelas, ciclo de
+  caixa, folha, sazonalidade, estoque parado e churn (SaaS). Faixa com os mesmos cortes das strategies:
+  BAIXO ≥ 750, MEDIO ≥ 500, ALTO ≥ 300, MUITO_ALTO abaixo disso.
+- **Oportunidades** (seção 5): taxa base BAIXO 1,69% · MEDIO 2,49% · ALTO 3,49% · MUITO_ALTO sem oferta; ANTECIPACAO
+  −0,4 pp (até 80% dos recebíveis de cartão estimados), FINANCIAMENTO_ESTOQUE −0,2 pp (até 60% do estoque),
+  CAPITAL_DE_GIRO 0 (receita diária × ciclo de caixa, até 1× a receita), ALAVANCAGEM +0,3 pp (só BAIXO/MEDIO com
+  dívida ≤ 1,5× e parcelas ≤ 20%; parcela livre de 25% da receita em 36 meses, até 3× a receita) e
+  CONSOLIDACAO_DIVIDAS (dívidas com parcelas > 15% ou dívida > 1× a receita).
+- **Insights** por área (`geral|vendas|recebiveis|pagamentos|estoque|pendencias|credito`, severidade
+  `info|atencao|oportunidade`), pontos fortes, riscos e resumo.
+- **Orquestrador** `app/analysis/service.py`: `run_analysis(payload, llm=None) -> AnalysisOutcome`. O `llm` é qualquer
+  objeto com `analyze(payload, rules_result) -> dict | None`. Com veredito: `gerado_por = "llm+regras"`, o resumo do
+  LLM substitui o das regras, pontos fortes e riscos são unidos sem duplicata e os insights do LLM são anexados
+  (área/severidade inválidas viram `geral`/`info`). Sem LLM, com `None` ou exceção: `gerado_por = "regras"`.
+
+**Status:** `APROVADO`, ou **`ANALISE_MANUAL`** se qualquer um destes ocorrer:
+
+| Motivo | Regra |
+| --- | --- |
+| `SEGMENTO_OUTRO` | `segmento == "outro"` |
+| `LLM_ESPECIFICO` | LLM respondeu `enquadramento == "ESPECIFICO"` |
+| `LLM_BAIXA_CONFIANCA` | LLM respondeu `confianca < 0.6` |
+| `RECEITA_INVALIDA` | `faturamento_mensal` ausente, zero ou negativo |
+| `DIVIDA_EXCESSIVA` | `dividas_total > 3 × faturamento_mensal` |
+| `PARCELAS_EXCESSIVAS` | `parcela_dividas_mensal > 50%` do faturamento |
+| `MARGEM_NEGATIVA` | `margem_bruta_pct < 0` |
+| `RISCO_MUITO_ALTO` | score do negócio na faixa MUITO_ALTO |
+
+As regras críticas também aparecem em `riscos`. A decisão humana registra `APROVADO` ou `REPROVADO` numa nova versão.
+
+**Persistência:** `business_analyses` (versionada por cliente: `customer_id`, `version`, `status`, `score`,
+`faixa_risco`, `gerado_por`, `resultado` JSON com o corpo completo, `source_event_id` único, `reviewer`,
+`review_comment`, `created_at`); as rotas devolvem sempre a maior versão, com `atualizado_em = created_at`.
+
+**`GET /me/analysis`:** o `customer_id` vem do `GET /me` do Onboarding com o token repassado (cache em memória de 5 min
+por `sub`, só quando já existe customer). Sem customer → 404 `{"error":"ONBOARDING_NAO_INICIADO","status":...}`;
+onboarding `EM_ANALISE` sem análise ainda → 200 `{customer_id, status:"EM_ANALISE"}` com os demais campos nulos/vazios;
+outro status sem análise → 404 `{"error":"ANALISE_NAO_ENCONTRADA","status":...}`. Falta de permissão no Onboarding →
+403; Onboarding fora → 502.
+
+**Métricas:** `business_analyses_total{status,gerado_por,segmento}` (uma por análise concluída, séries zeradas para os
+9 segmentos) e `llm_requests_total{result="disabled"}` quando a análise roda sem LLM configurado.
 
 ## Análise do negócio por LLM (ErpIa)
 

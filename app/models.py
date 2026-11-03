@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -82,3 +82,23 @@ class CustomerScoreStatus(Base):
     comprometimento_renda: Mapped[float | None] = mapped_column(Float, nullable=True)
     last_event_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class BusinessAnalysis(Base):
+    """Análise do negócio (onboarding PJ), versionada por cliente: a maior `version` é a vigente."""
+
+    __tablename__ = "business_analyses"
+    __table_args__ = (UniqueConstraint("customer_id", "version", name="uq_business_analyses_version"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    customer_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    faixa_risco: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    gerado_por: Mapped[str] = mapped_column(String(20), nullable=False)
+    resultado: Mapped[dict] = mapped_column(JSON, nullable=False)
+    source_event_id: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
+    reviewer: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    review_comment: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

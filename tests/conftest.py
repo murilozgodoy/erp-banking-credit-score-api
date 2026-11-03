@@ -7,8 +7,45 @@ from sqlalchemy.pool import StaticPool
 from app.database import Base, get_db
 from app.main import app
 from app.auth import Principal, require_auth
+from app.clients.onboarding_client import me_cache
 
-ALL_PERMISSIONS = frozenset({"read:scores", "write:scores"})
+ALL_PERMISSIONS = frozenset({"read:scores", "write:scores", "read:self"})
+
+
+@pytest.fixture(autouse=True)
+def _clear_me_cache():
+    me_cache.clear()
+    yield
+    me_cache.clear()
+
+
+@pytest.fixture()
+def business_payload():
+    """Payload de `customer.onboarding_submitted` de um varejo saudável."""
+    return {
+        "event_id": "evt-sub-1",
+        "event_type": "customer.onboarding_submitted",
+        "occurred_at": "2026-11-03T12:00:00Z",
+        "customer_id": 7,
+        "auth0_sub": "auth0|cliente",
+        "segmento": "varejo",
+        "empresa": {"razao_social": "Loja Exemplo LTDA", "nome_fantasia": "Loja Exemplo"},
+        "respostas": {
+            "faturamento_mensal": 182000,
+            "margem_bruta_pct": 42,
+            "prazo_medio_recebimento_dias": 38,
+            "prazo_medio_pagamento_dias": 45,
+            "folha_mensal": 30000,
+            "dividas_total": 60000,
+            "parcela_dividas_mensal": 9000,
+            "possui_estoque": True,
+            "valor_estoque": 120000,
+            "sazonalidade": "Média",
+            "ticket_medio": 140,
+            "pct_cartao_credito": 62,
+        },
+        "observacoes": "Duas lojas físicas e e-commerce próprio.",
+    }
 
 
 @pytest.fixture()
