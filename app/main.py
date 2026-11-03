@@ -8,13 +8,17 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from app import models  # noqa: F401  (registra as tabelas no metadata)
 from app.auth import require_auth
 from app.config import settings
+from app.logging_config import RequestIDMiddleware, configure_logging
 from app.database import SessionLocal, init_db
 from app.messaging.consumer import Binding, EventConsumer
-from app.messaging.handlers import handle_credit_decided
+from app.messaging.handlers import handle_anamnesis_updated, handle_credit_decided
 from app.routers import health, scores
 
 BINDINGS = [
     Binding("credit-score.credit-decided", "credit.decided", handle_credit_decided),
+    Binding(
+        "credit-score.anamnesis-updated", "customer.anamnesis_updated", handle_anamnesis_updated
+    ),
 ]
 
 
@@ -33,6 +37,7 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
+    configure_logging(settings.log_level)
     init_db()
     root_path = settings.root_path.rstrip("/")
     app = FastAPI(
@@ -48,7 +53,9 @@ def create_app() -> FastAPI:
         CORSMiddleware, allow_origins=settings.cors_origins,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
+        expose_headers=["X-Request-ID"],
     )
+    app.add_middleware(RequestIDMiddleware)  # mais externo: cobre CORS, auth e erros
     app.include_router(scores.router, dependencies=[Depends(require_auth)])
     Instrumentator(excluded_handlers=["/metrics"]).instrument(app).expose(
         app, endpoint="/metrics", include_in_schema=False
