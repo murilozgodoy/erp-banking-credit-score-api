@@ -251,10 +251,13 @@ Todos idempotentes por `event_id` (`source_event_id` único em `business_analyse
 sem argumentos (as definitions do broker já existem assim).
 
 **Publicação:** `business.analysis_completed` `{event_id, event_type, occurred_at, customer_id, status, score,
-faixa_risco, gerado_por}` na exchange `erp.events`. Os handlers são síncronos (thread, sessão própria) e devolvem os
+faixa_risco, gerado_por, source_event_id}` na exchange `erp.events`. Os handlers são síncronos (thread, sessão própria) e devolvem os
 eventos a publicar (`HandlerOutcome`); a camada assíncrona publica **depois do commit e antes do ack**, com o
 `EventPublisher` (aio-pika, conexão preguiçosa protegida por `asyncio.Lock`, mensagem persistente). Falha de
 publicação é logada e contada em `events_published_total{routing_key,result="error"}`, nunca derruba o consumo.
+
+`source_event_id` é o `event_id` do `customer.onboarding_submitted` que gerou a análise (inclusive na republicação
+de reentregas): o Onboarding o usa para descartar análise atrasada de uma submissão anterior. Campo aditivo.
 
 JSON inválido é descartado (ack, `result=invalid`); erro inesperado volta para a fila uma vez e depois é descartado.
 
