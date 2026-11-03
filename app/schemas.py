@@ -109,6 +109,11 @@ class OportunidadeOut(BaseModel):
     racional: str
 
 
+class MotivoRevisaoOut(BaseModel):
+    codigo: str
+    descricao: str
+
+
 class BusinessAnalysisOut(BaseModel):
     """Análise do negócio (contrato PORTAL_CLIENTE.md, seção 4)."""
 
@@ -124,3 +129,6 @@ class BusinessAnalysisOut(BaseModel):
     oportunidades: list[OportunidadeOut] = []
     pontos_fortes: list[str] = []
     riscos: list[str] = []
+    motivos_revisao: list[MotivoRevisaoOut] = Field(
+        default=[], description="Motivos da análise manual (vazio em APROVADO)"
+    )

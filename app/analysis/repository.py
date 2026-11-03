@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.analysis.service import AnalysisOutcome
+from app.analysis.service import AnalysisOutcome, motivos_revisao_response
 from app.models import BusinessAnalysis
 
 
@@ -99,6 +99,7 @@ def to_response(row: BusinessAnalysis) -> dict:
     for key in ("kpis", "insights", "oportunidades", "pontos_fortes", "riscos"):
         body.setdefault(key, [])
     body.setdefault("resumo", None)
+    body["motivos_revisao"] = motivos_revisao_response(row.status, body.get("motivos_revisao"))
     return body
 
 
@@ -117,4 +118,5 @@ def em_analise_response(customer_id: int) -> dict:
         "oportunidades": [],
         "pontos_fortes": [],
         "riscos": [],
+        "motivos_revisao": [],
     }

@@ -133,6 +133,8 @@ onboarding `EM_ANALISE` sem análise ainda → 200 `{customer_id, status:"EM_ANA
 outro status sem análise → 404 `{"error":"ANALISE_NAO_ENCONTRADA","status":...}`. Falta de permissão no Onboarding →
 403; Onboarding fora → 502.
 
+**`motivos_revisao`:** `GET /me/analysis` e `GET /scores/analyses/{id}` trazem `motivos_revisao: [{codigo, descricao}]` (ex.: `SEGMENTO_OUTRO`, `LLM_ESPECIFICO`, `DIVIDA_EXCESSIVA`, descrição em pt-BR); lista vazia em `APROVADO` e em análises gravadas antes do campo.
+
 **Métricas:** `business_analyses_total{status,gerado_por,segmento}` (uma por análise concluída, séries zeradas para os
 9 segmentos) e `llm_requests_total{result="disabled"}` quando a análise roda sem LLM configurado.
 

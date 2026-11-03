@@ -48,7 +48,7 @@ def test_rules_only_approved(business_payload):
     assert out.motivos_revisao == []
     assert set(out.body) == {
         "customer_id", "status", "score", "faixa_risco", "resumo", "gerado_por", "atualizado_em",
-        "kpis", "insights", "oportunidades", "pontos_fortes", "riscos",
+        "kpis", "insights", "oportunidades", "pontos_fortes", "riscos", "motivos_revisao",
     }
     assert out.body["customer_id"] == 7
     assert out.body["score"] == out.score

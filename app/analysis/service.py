@@ -175,6 +175,7 @@ def run_analysis(
         "oportunidades": rules["oportunidades"],
         "pontos_fortes": pontos_fortes,
         "riscos": riscos,
+        "motivos_revisao": list(motivos),
     }
     return AnalysisOutcome(
         status=status,
@@ -188,3 +189,12 @@ def run_analysis(
 
 def descricao_motivo(codigo: str) -> str:
     return REGRAS_CRITICAS.get(codigo) or MOTIVOS_ROTEAMENTO.get(codigo, codigo)
+
+
+def motivos_revisao_response(status: str | None, codigos) -> list[dict]:
+    """`[{codigo, descricao}]` para a resposta; vazio em APROVADO ou quando ausente (análises antigas)."""
+    if status == STATUS_APROVADO or not isinstance(codigos, list):
+        return []
+    return [
+        {"codigo": c, "descricao": descricao_motivo(c)} for c in codigos if isinstance(c, str)
+    ]

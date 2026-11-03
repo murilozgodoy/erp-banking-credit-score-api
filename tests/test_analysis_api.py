@@ -15,7 +15,7 @@ from app.models import BusinessAnalysis
 BASE = settings.onboarding_api_url
 CONTRACT_KEYS = {
     "customer_id", "status", "score", "faixa_risco", "resumo", "gerado_por", "atualizado_em",
-    "kpis", "insights", "oportunidades", "pontos_fortes", "riscos",
+    "kpis", "insights", "oportunidades", "pontos_fortes", "riscos", "motivos_revisao",
 }
 
 
