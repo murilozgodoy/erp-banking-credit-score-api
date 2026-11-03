@@ -6,7 +6,7 @@ import asyncio
 import json
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import aio_pika
 from sqlalchemy.orm import Session
@@ -18,17 +18,35 @@ logger = logging.getLogger(__name__)
 EXCHANGE = "erp.events"
 
 
+@dataclass
+class HandlerOutcome:
+    """Resultado de um handler que, além de gravar, quer publicar eventos.
+
+    Os handlers rodam síncronos numa thread e fazem o commit; os `events` (routing_key, payload)
+    são publicados depois, na camada assíncrona, antes do ack da mensagem.
+    """
+
+    result: str
+    events: list[tuple[str, dict]] = field(default_factory=list)
+
+
 @dataclass(frozen=True)
 class Binding:
     queue: str
     routing_key: str
-    handler: Callable[[Session, dict], str]
+    handler: Callable[[Session, dict], "str | HandlerOutcome"]
 
 
 def process_body(
-    body: bytes, binding: Binding, session_factory: Callable[[], Session]
+    body: bytes,
+    binding: Binding,
+    session_factory: Callable[[], Session],
+    outbox: list | None = None,
 ) -> str:
-    """Decodifica o JSON, chama o handler numa sessão própria e registra a métrica."""
+    """Decodifica o JSON, chama o handler numa sessão própria e registra a métrica.
+
+    Eventos devolvidos pelo handler (`HandlerOutcome`) vão para `outbox`.
+    """
     try:
         payload = json.loads(body)
         if not isinstance(payload, dict):
@@ -40,6 +58,10 @@ def process_body(
         db = session_factory()
         try:
             result = binding.handler(db, payload)
+            if isinstance(result, HandlerOutcome):
+                if outbox is not None:
+                    outbox.extend(result.events)
+                result = result.result
         except Exception:
             db.rollback()
             EVENTS_CONSUMED.labels(binding.routing_key, "error").inc()
@@ -51,15 +73,22 @@ def process_body(
 
 
 async def handle_message(
-    message, binding: Binding, session_factory: Callable[[], Session]
+    message, binding: Binding, session_factory: Callable[[], Session], publisher=None
 ) -> None:
-    """Ack no sucesso; erro inesperado volta para a fila uma vez e depois é descartado."""
+    """Ack no sucesso; erro inesperado volta para a fila uma vez e depois é descartado.
+
+    Eventos gerados pelo handler são publicados após o commit e antes do ack (o publisher nunca levanta).
+    """
+    outbox: list[tuple[str, dict]] = []
     try:
-        await asyncio.to_thread(process_body, message.body, binding, session_factory)
+        await asyncio.to_thread(process_body, message.body, binding, session_factory, outbox)
     except Exception:
         logger.exception("falha ao processar %s", binding.routing_key)
         await message.nack(requeue=not message.redelivered)
         return
+    if publisher is not None:
+        for routing_key, event in outbox:
+            await publisher.publish(routing_key, event)
     await message.ack()
 
 
@@ -70,8 +99,10 @@ class EventConsumer:
         bindings: list[Binding],
         session_factory: Callable[[], Session],
         retry_delay: float = 5.0,
+        publisher=None,
     ):
         self.url = url
+        self.publisher = publisher
         self.bindings = bindings
         self.session_factory = session_factory
         self.retry_delay = retry_delay
@@ -120,6 +151,6 @@ class EventConsumer:
 
     def _callback(self, binding: Binding):
         async def callback(message) -> None:
-            await handle_message(message, binding, self.session_factory)
+            await handle_message(message, binding, self.session_factory, self.publisher)
 
         return callback

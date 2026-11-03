@@ -13,6 +13,12 @@ EVENTS_CONSUMED = Counter(
     ["routing_key", "result"],
 )
 
+EVENTS_PUBLISHED = Counter(
+    "events_published_total",
+    "Eventos publicados no RabbitMQ",
+    ["routing_key", "result"],
+)
+
 LLM_REQUESTS = Counter(
     "llm_requests_total",
     "Análises de negócio pelo LLM (disabled = sem ANTHROPIC_API_KEY)",
@@ -31,7 +37,14 @@ BUSINESS_ANALYSES = Counter(
     ["status", "gerado_por", "segmento"],
 )
 
-CONSUMED_ROUTING_KEYS = ("credit.decided", "customer.anamnesis_updated")
+CONSUMED_ROUTING_KEYS = (
+    "credit.decided",
+    "customer.anamnesis_updated",
+    "customer.onboarding_submitted",
+    "customer.onboarding_reviewed",
+)
+PUBLISHED_ROUTING_KEYS = ("business.analysis_completed",)
+PUBLISHED_RESULTS = ("ok", "error")
 CONSUMED_RESULTS = ("ok", "duplicate", "invalid", "error")
 STRATEGIES = ("simple", "weighted")
 FAIXAS_RISCO = ("BAIXO", "MEDIO", "ALTO", "MUITO_ALTO")
@@ -52,6 +65,9 @@ def init_metrics() -> None:
     for routing_key in CONSUMED_ROUTING_KEYS:
         for result in CONSUMED_RESULTS:
             EVENTS_CONSUMED.labels(routing_key=routing_key, result=result)
+    for routing_key in PUBLISHED_ROUTING_KEYS:
+        for result in PUBLISHED_RESULTS:
+            EVENTS_PUBLISHED.labels(routing_key=routing_key, result=result)
     for strategy in STRATEGIES:
         for faixa in FAIXAS_RISCO:
             SCORE_EVALUATIONS.labels(strategy=strategy, faixa_risco=faixa)

@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from functools import partial
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,8 +11,15 @@ from app.auth import require_auth
 from app.config import settings
 from app.logging_config import RequestIDMiddleware, configure_logging
 from app.database import SessionLocal, init_db
+from app.analysis.llm import build_llm_analyzer
 from app.messaging.consumer import Binding, EventConsumer
-from app.messaging.handlers import handle_anamnesis_updated, handle_credit_decided
+from app.messaging.handlers import (
+    handle_anamnesis_updated,
+    handle_credit_decided,
+    handle_onboarding_reviewed,
+    handle_onboarding_submitted,
+)
+from app.messaging.publisher import EventPublisher
 from app.routers import analysis, health, scores
 
 BINDINGS = [
@@ -22,18 +30,43 @@ BINDINGS = [
 ]
 
 
-def build_consumer() -> EventConsumer:
-    return EventConsumer(settings.rabbitmq_url, BINDINGS, SessionLocal)
+
+
+def build_bindings(llm=None) -> list[Binding]:
+    """Bindings do consumer; o `llm` (ou None = só regras) é criado uma vez no startup."""
+    return [
+        *BINDINGS,
+        Binding(
+            "credit-score.onboarding-submitted",
+            "customer.onboarding_submitted",
+            partial(handle_onboarding_submitted, llm=llm),
+        ),
+        Binding(
+            "credit-score.onboarding-reviewed", "customer.onboarding_reviewed", handle_onboarding_reviewed
+        ),
+    ]
+
+
+def build_consumer(publisher: EventPublisher | None = None) -> EventConsumer:
+    return EventConsumer(
+        settings.rabbitmq_url,
+        build_bindings(build_llm_analyzer(settings)),
+        SessionLocal,
+        publisher=publisher,
+    )
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    consumer = build_consumer()
+    publisher = EventPublisher(settings.rabbitmq_url)
+    app.state.publisher = publisher
+    consumer = build_consumer(publisher)
     consumer.start()
     try:
         yield
     finally:
         await consumer.stop()
+        await publisher.close()
 
 
 def create_app() -> FastAPI:

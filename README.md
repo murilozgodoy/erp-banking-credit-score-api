@@ -182,12 +182,24 @@ Os testes usam chaves RSA e tokens locais ou autenticação simulada, sem chamad
 | ---------------------------------- | ---------------------------- | ------ |
 | `credit-score.credit-decided`      | `credit.decided`             | Grava em `credit_decision_events` (idempotente por `event_id`) → `GET /scores/decisions` |
 | `credit-score.anamnesis-updated`   | `customer.anamnesis_updated` | Marca o score do cliente como desatualizado (`customer_score_status`); nova avaliação limpa a marca |
+| `credit-score.onboarding-submitted` | `customer.onboarding_submitted` | Roda a análise do negócio (regras + LLM se `ANTHROPIC_API_KEY`), grava nova versão em `business_analyses` e publica `business.analysis_completed` |
+| `credit-score.onboarding-reviewed` | `customer.onboarding_reviewed` | Grava a decisão humana (`APROVADO`/`REPROVADO`, `reviewer`, `comentario`) como nova versão da análise vigente |
+
+Todos idempotentes por `event_id` (`source_event_id` único em `business_analyses`). As filas são declaradas duráveis e
+sem argumentos (as definitions do broker já existem assim).
+
+**Publicação:** `business.analysis_completed` `{event_id, event_type, occurred_at, customer_id, status, score,
+faixa_risco, gerado_por}` na exchange `erp.events`. Os handlers são síncronos (thread, sessão própria) e devolvem os
+eventos a publicar (`HandlerOutcome`); a camada assíncrona publica **depois do commit e antes do ack**, com o
+`EventPublisher` (aio-pika, conexão preguiçosa protegida por `asyncio.Lock`, mensagem persistente). Falha de
+publicação é logada e contada em `events_published_total{routing_key,result="error"}`, nunca derruba o consumo.
 
 JSON inválido é descartado (ack, `result=invalid`); erro inesperado volta para a fila uma vez e depois é descartado.
 
 **Métricas** (`GET /metrics`): padrão do `prometheus-fastapi-instrumentator` (`http_requests_total`,
 `http_request_duration_seconds`, `http_request_duration_highr_seconds`) +
-`score_evaluations_total{strategy,faixa_risco}` e `events_consumed_total{routing_key,result=ok|duplicate|invalid|error}`.
+`score_evaluations_total{strategy,faixa_risco}`, `events_consumed_total{routing_key,result=ok|duplicate|invalid|error}` e
+`events_published_total{routing_key,result=ok|error}` (séries zeradas no startup).
 
 **Logs:** uma linha JSON por requisição (`request_id`, `method`, `path`, `status`, `duration_ms`); o `X-Request-ID`
 recebido do gateway é reaproveitado (ou gerado) e devolvido no header da resposta.

@@ -1,11 +1,17 @@
 """Handlers dos eventos consumidos (síncronos, testáveis sem broker)."""
 import logging
 from datetime import datetime, timezone
+from typing import Literal
 
 from pydantic import BaseModel, ValidationError
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.analysis.repository import BusinessAnalysisRepository
+from app.analysis.service import run_analysis
+from app.messaging.consumer import HandlerOutcome
+from app.messaging.publisher import ANALYSIS_COMPLETED, analysis_completed_event
 from app.models import CreditDecisionEvent, CustomerScoreStatus
 
 logger = logging.getLogger(__name__)
@@ -93,4 +99,92 @@ def handle_anamnesis_updated(db: Session, payload: dict) -> str:
     status.last_event_id = event.event_id
     status.updated_at = datetime.now(timezone.utc)
     db.commit()
+    return RESULT_OK
+
+
+class OnboardingSubmittedEvent(BaseModel):
+    event_id: str
+    event_type: str = "customer.onboarding_submitted"
+    occurred_at: datetime
+    customer_id: int
+    auth0_sub: str | None = None
+    segmento: str
+    empresa: dict | None = None
+    respostas: dict = {}
+    observacoes: str | None = None
+
+
+def handle_onboarding_submitted(db: Session, payload: dict, llm=None) -> "str | HandlerOutcome":
+    """Roda a análise do negócio (regras + LLM opcional), grava nova versão e devolve o
+    `business.analysis_completed` para publicar após o commit. Idempotente por `event_id`."""
+    try:
+        event = OnboardingSubmittedEvent.model_validate(payload)
+    except ValidationError as exc:
+        logger.warning("evento customer.onboarding_submitted inválido: %s", exc.errors())
+        return RESULT_INVALID
+
+    repo = BusinessAnalysisRepository(db)
+    if repo.exists_event(event.event_id):
+        return RESULT_DUPLICATE
+
+    outcome = run_analysis(event.model_dump(mode="json"), llm=llm)
+    try:
+        repo.save_outcome(event.customer_id, outcome, source_event_id=event.event_id)
+        db.commit()
+    except IntegrityError:  # mesma mensagem processada em paralelo
+        db.rollback()
+        return RESULT_DUPLICATE
+    logger.info(
+        "análise do negócio do cliente %s: %s (score %s, %s)",
+        event.customer_id, outcome.status, outcome.score, outcome.gerado_por,
+    )
+    completed = analysis_completed_event(
+        event.customer_id, outcome.status, outcome.score, outcome.faixa_risco, outcome.gerado_por
+    )
+    return HandlerOutcome(RESULT_OK, [(ANALYSIS_COMPLETED, completed)])
+
+
+class OnboardingReviewedEvent(BaseModel):
+    event_id: str
+    event_type: str = "customer.onboarding_reviewed"
+    occurred_at: datetime
+    customer_id: int
+    decisao: Literal["APROVADO", "REPROVADO"]
+    comentario: str | None = None
+    reviewer: str | None = None
+
+
+def handle_onboarding_reviewed(db: Session, payload: dict) -> str:
+    """Registra a decisão humana como nova versão da análise vigente. Idempotente por `event_id`."""
+    try:
+        event = OnboardingReviewedEvent.model_validate(payload)
+    except ValidationError as exc:
+        logger.warning("evento customer.onboarding_reviewed inválido: %s", exc.errors())
+        return RESULT_INVALID
+
+    repo = BusinessAnalysisRepository(db)
+    if repo.exists_event(event.event_id):
+        return RESULT_DUPLICATE
+    latest = repo.latest(event.customer_id)
+    if latest is None:
+        logger.warning("revisão do cliente %s sem análise do negócio registrada", event.customer_id)
+        return RESULT_INVALID
+
+    resultado = {**(latest.resultado or {}), "status": event.decisao}
+    try:
+        repo.add_version(
+            event.customer_id,
+            status=event.decisao,
+            score=latest.score,
+            faixa_risco=latest.faixa_risco,
+            gerado_por=latest.gerado_por,
+            resultado=resultado,
+            source_event_id=event.event_id,
+            reviewer=event.reviewer,
+            review_comment=event.comentario,
+        )
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        return RESULT_DUPLICATE
     return RESULT_OK
