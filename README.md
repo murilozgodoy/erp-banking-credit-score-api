@@ -5,7 +5,7 @@ Documentação central do projeto em [erp-banking-front/docs](https://github.com
 
 ## Requisitos
 
-- Python 3.11+
+- Python 3.12+ (o CI e a imagem Docker usam 3.13)
 - Onboarding API rodando (para chamadas reais). Nos testes é mockado com `respx`.
 
 ## Instalação
@@ -25,6 +25,23 @@ python -m app.main          # http://localhost:8082 (porta configurável por POR
 
 Docs interativas: http://localhost:8082/docs (exigem Bearer token).
 
+## Produção (EC2 + API Gateway)
+
+O serviço roda no `docker compose` do repo [erp-banking-infra](https://github.com/GabrielRosa1/erp-banking-infra)
+na EC2 `3.235.6.136`, **sem porta publicada**: o acesso público é só pelo API Gateway (nginx) na porta **8080**, com
+o prefixo `/score` (removido antes de chegar aqui; por isso `ROOT_PATH=/score`).
+
+| O quê            | URL                                                        |
+| ---------------- | ---------------------------------------------------------- |
+| API              | `http://3.235.6.136:8080/score/...` (ex.: `/score/health`) |
+| Swagger          | `http://3.235.6.136:8080/score/docs` (exige Bearer token)  |
+| Front (Vercel)   | https://erp-banking-front.vercel.app → `/api/score/*` reescrito para o gateway |
+| Grafana          | `http://3.235.6.136:8081`                                  |
+| Prometheus       | `http://3.235.6.136:8082` (coleta `credit-score-api:8082/metrics` pela rede interna) |
+
+`/metrics` não é exposto pelo gateway. No compose: `ONBOARDING_API_URL=http://onboarding-api:8081`,
+`RABBITMQ_URL=amqp://erp:erp@rabbitmq:5672/`, `DATABASE_URL` com `search_path%3Dcredit_score`.
+
 ## Testes com cobertura
 
 ```bash
@@ -38,8 +55,8 @@ Cobertura mínima: **80%**.
 | Variável             | Padrão                        | Descrição                                                   |
 | -------------------- | ----------------------------- | ----------------------------------------------------------- |
 | `DATABASE_URL`       | `sqlite:///./credit_score.db` | Em produção: `postgresql+psycopg://erp:erp@postgres:5432/erp?options=-csearch_path%3Dcredit_score` (schema criado no startup) |
-| `ONBOARDING_API_URL` | `http://localhost:8081`       | URL da Onboarding API                                       |
-| `PORT`               | `8082`                        | Porta usada por `python -m app.main` (porta aberta na EC2)  |
+| `ONBOARDING_API_URL` | `http://localhost:8081`       | URL da Onboarding API (compose: `http://onboarding-api:8081`) |
+| `PORT`               | `8082`                        | Porta do uvicorn (local e dentro do container)              |
 | `AUTH0_DOMAIN`       | —                             | Domínio do tenant, sem `https://`                           |
 | `AUTH0_AUDIENCE`     | —                             | Identifier da API no Auth0: `https://erp-banking-api`       |
 | `CORS_ORIGINS`       | `["http://localhost:5173"]`   | Origens do frontend, em JSON                                |
@@ -70,7 +87,7 @@ Cobertura mínima: **80%**.
 Envie o **access token** do Auth0 em `Authorization: Bearer <token>`. A API valida assinatura
 RS256 via JWKS, issuer, audience e expiração: **401** sem token ou com token inválido, **403**
 quando falta a permissão da rota (claim `permissions` do RBAC do Auth0, ou `scope`) e **503** se
-`AUTH0_*` não estiver configurado. `/health` é público; `/docs`, `/redoc` e `/openapi.json` exigem token.
+`AUTH0_*` não estiver configurado. `/health` e `/metrics` são públicos; `/docs`, `/redoc` e `/openapi.json` exigem token.
 
 **Token relay:** ao calcular um score, o `OnboardingClient` repassa o mesmo token ao Onboarding,
 que aplica as próprias permissões. Por isso calcular score exige `write:scores` aqui **e**
