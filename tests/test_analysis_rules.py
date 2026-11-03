@@ -244,3 +244,16 @@ def test_leitura_variants():
     assert _leitura(105, 100, True) == "em linha com a média do segmento"
     assert _leitura(50, 100, False) == "abaixo da média do segmento (favorável)"
     assert _leitura(50, 100, None) == "abaixo da média do segmento"
+
+
+def test_prazos_iguais_ao_simulador_do_transactions():
+    """As oportunidades viram links para o simulador; prazo maior que o do Transactions seria recusado lá."""
+    from app.analysis.rules import PRAZO_MAX
+
+    assert PRAZO_MAX == {
+        "ANTECIPACAO_RECEBIVEIS": 6,
+        "CAPITAL_DE_GIRO": 24,
+        "ALAVANCAGEM": 36,
+        "FINANCIAMENTO_ESTOQUE": 18,
+        "CONSOLIDACAO_DIVIDAS": 24,
+    }
