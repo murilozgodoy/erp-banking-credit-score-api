@@ -86,7 +86,8 @@ def create_app() -> FastAPI:
         title="ErpIa - Credit Score API",
         version="1.0.0", docs_url=None, redoc_url=None, openapi_url=None,
         description="ErpIa: score de crédito, histórico e análise do negócio",
-        root_path=root_path,
+        # ROOT_PATH só no OpenAPI (servers) e no Swagger: passar root_path=... ao FastAPI faz o Starlette
+        # tirar o prefixo de rotas que comecem com o mesmo texto (bug do 404 em /onboarding/templates).
         servers=[{"url": root_path}] if root_path else None,
         lifespan=lifespan,
     )
