@@ -8,3 +8,4 @@ psycopg[binary]==3.2.3
 PyJWT[crypto]==2.12.1
 prometheus-fastapi-instrumentator==7.0.0
 aio-pika==9.4.3
+anthropic==2.4.0

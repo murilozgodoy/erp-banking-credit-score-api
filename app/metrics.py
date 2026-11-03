@@ -13,10 +13,17 @@ EVENTS_CONSUMED = Counter(
     ["routing_key", "result"],
 )
 
+LLM_ANALYSES = Counter(
+    "llm_analyses_total",
+    "Análises de negócio feitas pelo LLM",
+    ["result"],
+)
+
 CONSUMED_ROUTING_KEYS = ("credit.decided", "customer.anamnesis_updated")
 CONSUMED_RESULTS = ("ok", "duplicate", "invalid", "error")
 STRATEGIES = ("simple", "weighted")
 FAIXAS_RISCO = ("BAIXO", "MEDIO", "ALTO", "MUITO_ALTO")
+LLM_RESULTS = ("ok", "error", "timeout", "invalid")
 
 
 def init_metrics() -> None:
@@ -30,6 +37,8 @@ def init_metrics() -> None:
     for strategy in STRATEGIES:
         for faixa in FAIXAS_RISCO:
             SCORE_EVALUATIONS.labels(strategy=strategy, faixa_risco=faixa)
+    for result in LLM_RESULTS:
+        LLM_ANALYSES.labels(result=result)
 
 
 init_metrics()

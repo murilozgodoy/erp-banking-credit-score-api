@@ -82,6 +82,28 @@ Cobertura mínima: **80%**.
 - `weighted` (padrão): renda 40% + patrimônio 30% + comprometimento 30%
 - `simple`: regras binárias de renda/dívidas/comprometimento
 
+## Análise do negócio por LLM (ErpIa)
+
+`app/analysis/llm.py` (`LlmAnalyzer`) complementa a análise por regras do onboarding PJ. Recebe o payload de
+`customer.onboarding_submitted` (segmento, empresa, respostas, observações) e, se houver, o resultado das regras, e
+pede ao Claude um JSON estruturado (structured outputs com JSON Schema):
+`{enquadramento: PADRAO|ESPECIFICO, confianca: 0..1, resumo, pontos_fortes[], riscos[], insights[]}`. O retorno é
+validado com pydantic (confiança limitada a 0..1, insights inválidos descartados, listas com tamanho máximo).
+
+| Variável | Padrão | Uso |
+| --- | --- | --- |
+| `ANTHROPIC_API_KEY` | vazio | Vazio = LLM desligado, só regras |
+| `ANALYSIS_MODEL` | `claude-sonnet-5-5` | Modelo usado |
+| `ANALYSIS_TIMEOUT_SECONDS` | `20` | Timeout da chamada (1 retry) |
+
+**Fallback:** qualquer falha (timeout, erro da API, recusa, saída inválida) devolve `None` e a análise segue só com
+as regras. Métrica `llm_analyses_total{result="ok|error|timeout|invalid"}`.
+
+**Privacidade e segurança:** a chave nunca vai para log, exceção, `repr` ou resposta (o log registra só o tipo da
+falha, o resultado e a latência, sem conteúdo). As respostas e observações do cliente são enviadas à API da
+Anthropic como dados delimitados, e o prompt manda ignorar instruções contidas nelas. Os testes usam um client falso
+e nunca chamam a API.
+
 ## Autenticação e autorização (Auth0)
 
 Envie o **access token** do Auth0 em `Authorization: Bearer <token>`. A API valida assinatura
