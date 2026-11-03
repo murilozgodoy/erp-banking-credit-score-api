@@ -281,8 +281,11 @@ def list_conversations(
     db: Session = Depends(get_db),
     principal: Principal = Depends(require_assistant_access),
 ):
-    """Conversas do usuário dono do token, não apagadas, da mais recente para a mais antiga."""
-    return history.list_conversations(db, principal.subject, limit, offset)
+    """Conversas do usuário dono do token na empresa atual, não apagadas, da mais recente para a mais antiga."""
+    customer_id = _resolve_me(principal).customer_id  # já em cache pelo require_assistant_access
+    if customer_id is None:
+        return []
+    return history.list_conversations(db, principal.subject, limit, offset, customer_id=customer_id)
 
 
 @router.get(
@@ -294,8 +297,14 @@ def get_conversation(
     db: Session = Depends(get_db),
     principal: Principal = Depends(require_assistant_access),
 ):
-    """Mensagens da conversa em ordem (pergunta e resposta final; nunca o conteúdo das ferramentas)."""
-    found = history.get_conversation(db, principal.subject, conversation_id)
+    """Mensagens da conversa em ordem (pergunta e resposta final; nunca o conteúdo das ferramentas).
+
+    Só conversas da empresa atual do usuário: quem saiu da empresa não relê os dados dela (404).
+    """
+    customer_id = _resolve_me(principal).customer_id  # já em cache pelo require_assistant_access
+    if customer_id is None:
+        return _error(404, NOT_FOUND_BODY)
+    found = history.get_conversation(db, principal.subject, conversation_id, customer_id=customer_id)
     return found if found is not None else _error(404, NOT_FOUND_BODY)
 
 
