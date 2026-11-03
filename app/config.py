@@ -14,6 +14,10 @@ class Settings(BaseSettings):
     port: int = 8082
     root_path: str = ""
     rabbitmq_url: str = ""
+    # Análise do negócio por LLM (opcional). Chave vazia = só regras.
+    anthropic_api_key: str = ""
+    analysis_model: str = "claude-sonnet-5-5"
+    analysis_timeout_seconds: float = 20.0
 
 
 settings = Settings()
