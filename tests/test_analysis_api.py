@@ -137,6 +137,37 @@ def test_me_analysis_onboarding_errors(client, upstream, expected):
     assert client.get("/me/analysis").status_code == expected
 
 
+@respx.mock
+def test_me_analysis_resubmission_after_reprovado_is_em_analise(client, db_session, business_payload):
+    row = store(db_session, business_payload)
+    row.status = "REPROVADO"
+    db_session.commit()
+    # cache ainda diz REPROVADO; o cliente reenviou e o Onboarding já está em EM_ANALISE
+    respx.get(f"{BASE}/me").mock(side_effect=[me(7, "REPROVADO"), me(7, "EM_ANALISE")])
+    body = client.get("/me/analysis").json()
+    assert body["status"] == "EM_ANALISE" and body["score"] is None
+
+
+@respx.mock
+def test_me_analysis_reprovado_still_shown_when_not_resubmitted(client, db_session, business_payload):
+    row = store(db_session, business_payload)
+    row.status = "REPROVADO"
+    db_session.commit()
+    respx.get(f"{BASE}/me").mock(return_value=me(7, "REPROVADO"))
+    assert client.get("/me/analysis").json()["status"] == "REPROVADO"
+
+
+@respx.mock
+@pytest.mark.parametrize("response", [
+    httpx.Response(200, text="<html>gateway</html>"),
+    httpx.Response(200, json=["x"]),
+    httpx.Response(200, json={"customer_id": "abc"}),
+])
+def test_me_analysis_invalid_onboarding_body_is_502(client, response):
+    respx.get(f"{BASE}/me").mock(return_value=response)
+    assert client.get("/me/analysis").status_code == 502
+
+
 def test_me_analysis_requires_read_self(client):
     app.dependency_overrides[require_auth] = lambda: Principal("t", "auth0|x", frozenset({"read:scores"}))
     assert client.get("/me/analysis").status_code == 403

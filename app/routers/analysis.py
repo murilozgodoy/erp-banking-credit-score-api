@@ -47,6 +47,10 @@ def get_my_analysis(
             content={"error": "ONBOARDING_NAO_INICIADO", "status": me.onboarding_status or "NAO_INICIADO"},
         )
     row = BusinessAnalysisRepository(db).latest(me.customer_id)
+    if row is not None and row.status == "REPROVADO":
+        me = _resolve_me(principal, fresh=True)  # reenvio após REPROVADO: a análise antiga não vale mais
+        if me.onboarding_status == "EM_ANALISE":
+            return em_analise_response(me.customer_id)
     if row is not None:
         return to_response(row)
     if me.onboarding_status != "EM_ANALISE":
