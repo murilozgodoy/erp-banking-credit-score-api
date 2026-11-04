@@ -5,6 +5,8 @@ onboarding PJ (regras + Claude) e para o **Assistente ErpIa**, o chat com IA do 
 ponta da Fase 2 está em `docs/portal-cliente.md` e `docs/apis-fase-2.md` do
 [repositório do front](https://github.com/murilozgodoy/erp-banking-front/tree/main/docs).
 
+Infra e deploy: [erp-banking-infra](https://github.com/GabrielRosa1/erp-banking-infra)
+
 ## Sumário
 
 - [Executar localmente](#executar-localmente)
